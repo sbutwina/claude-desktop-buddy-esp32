@@ -60,7 +60,9 @@
 // MADCTL override: Arduino_CO5300's setRotation only does X/Y mirror, not
 // row/column swap (MV bit). Setting this to non-zero writes 0x36 directly
 // after canvas->begin(). 0x60 = MV+MX (90° CW); 0xA0 = MV+MY (90° CCW); 0 = no override.
-#define BOARD_CO5300_MADCTL        0xA0   // MV+MY (90° CCW; opposite rotation of 0x60 / MV+MX)
+//#define BOARD_CO5300_MADCTL        0xA0   // MV+MY (90° CCW; opposite rotation of 0x60 / MV+MX)
+//#define BOARD_CO5300_MADCTL        0   // Switch to no rotation (buttons on left)
+#define BOARD_CO5300_MADCTL        0xC0   // Switch to upsidw down (buttons on right)
 #define BOARD_DISPLAY_LETTERBOX    1   // CO5300 needs one-shot blit; S3 has PSRAM for full frame buf
 #define BOARD_DISPLAY_DEST_W       368   // 184 × 2 (exact integer upscale; bilinear == nearest at 2×)
 #define BOARD_DISPLAY_DEST_H       448   // 224 × 2

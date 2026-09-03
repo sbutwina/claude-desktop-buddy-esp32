@@ -53,9 +53,11 @@ static bool i2sInit() {
   return true;
 }
 
+static es8311_handle_t s_codec = nullptr;
+
 static bool es8311CodecInit() {
-  es8311_handle_t h = es8311_create((i2c_port_t)0, ES8311_ADDRRES_0);
-  if (!h) { Serial.println("hwAudio: es8311_create failed"); return false; }
+  s_codec = es8311_create((i2c_port_t)0, ES8311_ADDRRES_0);
+  if (!s_codec) { Serial.println("hwAudio: es8311_create failed"); return false; }
   const es8311_clock_config_t clk = {
     .mclk_inverted      = false,
     .sclk_inverted      = false,
@@ -63,11 +65,19 @@ static bool es8311CodecInit() {
     .mclk_frequency     = AUDIO_SR * 256,
     .sample_frequency   = AUDIO_SR,
   };
-  if (es8311_init(h, &clk, ES8311_RESOLUTION_16, ES8311_RESOLUTION_16) != ESP_OK) return false;
-  if (es8311_sample_frequency_config(h, clk.mclk_frequency, clk.sample_frequency) != ESP_OK) return false;
-  es8311_microphone_config(h, false);
-  es8311_voice_volume_set(h, AUDIO_VOL, nullptr);
+  if (es8311_init(s_codec, &clk, ES8311_RESOLUTION_16, ES8311_RESOLUTION_16) != ESP_OK) return false;
+  if (es8311_sample_frequency_config(s_codec, clk.mclk_frequency, clk.sample_frequency) != ESP_OK) return false;
+  es8311_microphone_config(s_codec, false);
+  es8311_voice_volume_set(s_codec, AUDIO_VOL, nullptr);
   return true;
+}
+
+// 0..100, same scale as AUDIO_VOL — the codec's own hardware volume stage,
+// not a digital amplitude scale, so low settings don't lose bit depth.
+void hwAudioSetVolume(uint8_t pct0to100) {
+  if (!s_codec) return;
+  if (pct0to100 > 100) pct0to100 = 100;
+  es8311_voice_volume_set(s_codec, pct0to100, nullptr);
 }
 
 static void beepTask(void*) {
@@ -75,13 +85,23 @@ static void beepTask(void*) {
   int16_t buf[256];
   while (xQueueReceive(s_beepQ, &r, portMAX_DELAY) == pdTRUE) {
     int total = AUDIO_SR * r.dur / 1000;
+    // 4ms linear fade in/out — softens the on/off click of a raw sine burst.
+    // Capped at total/2 so a very short beep fades to silence, not negative.
+    int fade = AUDIO_SR * 4 / 1000;
+    if (fade > total / 2) fade = total / 2;
     float phase = 0.0f;
     float dphase = 2.0f * (float)M_PI * r.freq / (float)AUDIO_SR;
     for (int n = 0; n < total; n += 256) {
       int chunk = total - n;
       if (chunk > 256) chunk = 256;
       for (int i = 0; i < chunk; i++) {
-        buf[i] = (int16_t)(AUDIO_AMP * sinf(phase));
+        int sampleIdx = n + i;
+        float env = 1.0f;
+        if (fade > 0) {
+          if (sampleIdx < fade)              env = (float)sampleIdx / fade;
+          else if (sampleIdx >= total - fade) env = (float)(total - 1 - sampleIdx) / fade;
+        }
+        buf[i] = (int16_t)(AUDIO_AMP * env * sinf(phase));
         phase += dphase;
         if (phase > 2*M_PI) phase -= 2*M_PI;
       }

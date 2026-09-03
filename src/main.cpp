@@ -75,6 +75,11 @@ char     lastPromptId[40] = "";
 uint32_t lastInteractMs = 0;
 bool     dimmed = false;
 bool     screenOff = false;
+// Battery-only: dims (not sleeps) the screen when Claude is busy and idle,
+// so the last frame stays glanceable instead of going fully blank. Kept
+// separate from `napping` — that one feeds statsOnNapEnd()/energy-recharge
+// in stats.h, and this isn't a real face-down nap.
+bool     busyDimmed = false;
 bool     swallowBtnA = false;
 bool     swallowBtnB = false;
 bool     buddyMode = false;
@@ -140,6 +145,7 @@ static void wake() {
     wakeTransitionUntil = millis() + 12000;
   }
   if (dimmed) { applyBrightness(); dimmed = false; }
+  if (busyDimmed) { applyBrightness(); busyDimmed = false; }
 }
 bool     responseSent = false;
 
@@ -147,25 +153,10 @@ static void beep(uint16_t freq, uint16_t dur) {
   if (settings().sound) hwBeep(freq, dur);
 }
 
-// Touch hit-test helper (additive: keys still work, touch is a 2nd path).
-// Returns true on a fresh tap-down inside the rect; releases don't fire.
-static bool tap(int x, int y, int w, int h) {
-  const HwTouch& t = hwTouch();
-  return t.justPressed && t.x >= x && t.y >= y && t.x < x+w && t.y < y+h;
-}
-
-// Press-start snapshot for gesture classification (swipe). Updated on every
-// justPressed; read on justReleased to compute Δx/Δy/Δt.
+// Press-start snapshot, read on justReleased to classify a stationary tap
+// (small Δx/Δy, short Δt) vs. a drag — touch only reacts to the former.
 static int16_t  _tpStartX = 0, _tpStartY = 0;
 static uint32_t _tpStartMs = 0;
-
-// Rect hit-test against the press-START position. Use on justReleased after
-// a gesture has been classified as a stationary tap — so a tap with minor
-// finger drift still targets the region the user pressed on.
-static bool tappedFrom(int x, int y, int w, int h) {
-  return _tpStartX >= x && _tpStartY >= y &&
-         _tpStartX <  x + w && _tpStartY <  y + h;
-}
 
 // After a user interaction in clock mode (pet tap or species swipe), keep the
 // buddy awake for this long — otherwise the time-of-day logic snaps back to
@@ -195,44 +186,13 @@ void applyDisplayMode() {
   characterInvalidate();  // redraws character on next tick (text mode path)
 }
 
-// Swipe cycles through all 9 pages as a flat list:
-//   Normal → Pet 1/2 → Pet 2/2 → Info 1/6 → … → Info 6/6 → (wrap to Normal)
-// Key1 short-press keeps the coarser 3-mode cycle; these helpers are only
-// wired into the release-based gesture classifier below.
-// applyDisplayMode() fires on mode transitions and Pet sub-page (matches
-// existing BtnB behaviour). Info sub-page skips it because drawInfo() clears
-// its own region — also matches existing BtnB behaviour.
-static void swipeNextPage() {
-  if (displayMode == DISP_NORMAL) {
-    displayMode = DISP_PET; petPage = 0;                  applyDisplayMode();
-  } else if (displayMode == DISP_PET) {
-    if (petPage + 1 < PET_PAGES)    { petPage++;          applyDisplayMode(); }
-    else { displayMode = DISP_INFO; infoPage = 0;         applyDisplayMode(); }
-  } else { /* DISP_INFO */
-    if (infoPage + 1 < INFO_PAGES)  { infoPage++; }
-    else { displayMode = DISP_NORMAL;                     applyDisplayMode(); }
-  }
-}
-
-static void swipePrevPage() {
-  if (displayMode == DISP_NORMAL) {
-    displayMode = DISP_INFO; infoPage = INFO_PAGES - 1;   applyDisplayMode();
-  } else if (displayMode == DISP_PET) {
-    if (petPage > 0)                { petPage--;          applyDisplayMode(); }
-    else { displayMode = DISP_NORMAL;                     applyDisplayMode(); }
-  } else { /* DISP_INFO */
-    if (infoPage > 0)               { infoPage--; }
-    else { displayMode = DISP_PET; petPage = PET_PAGES - 1; applyDisplayMode(); }
-  }
-}
-
 const char* menuItems[] = { "settings", "turn off", "help", "about", "demo", "close" };
 const uint8_t MENU_N = 6;
 
 bool    settingsOpen = false;
 uint8_t settingsSel  = 0;
-const char* settingsItems[] = { "brightness", "sound", "bluetooth", "wifi", "led", "transcript", "clock rot", "ascii pet", "reset", "back" };
-const uint8_t SETTINGS_N = 10;
+const char* settingsItems[] = { "brightness", "volume", "sound", "bluetooth", "wifi", "led", "transcript", "clock rot", "ascii pet", "uptime", "rotation", "reset", "back" };
+const uint8_t SETTINGS_N = 13;
 
 bool    resetOpen = false;
 uint8_t resetSel  = 0;
@@ -248,21 +208,28 @@ static void applySetting(uint8_t idx) {
       brightLevel = (brightLevel + 1) % 5;
       applyBrightness();
       return;
-    case 1: s.sound = !s.sound; break;
-    case 2:
+    case 1:
+      s.volume = (uint8_t)((s.volume + 20) % 120);   // 0,20,40,60,80,100,0,...
+      hwAudioSetVolume(s.volume);
+      beep(1800, 40);   // audible feedback at the new level
+      break;
+    case 2: s.sound = !s.sound; break;
+    case 3:
       // BT toggle is a stored preference only — BLE stays live. Turning
       // BLE off cleanly would require tearing down the BLE stack which
       // the Arduino BLE library doesn't do reliably. If we need a
       // hard-off someday, stop advertising via BLEDevice::getAdvertising().
       s.bt = !s.bt;
       break;
-    case 3: s.wifi = !s.wifi; break;   // stored only — no WiFi stack linked
-    case 4: s.led = !s.led; break;
-    case 5: s.hud = !s.hud; break;
-    case 6: s.clockRot = (s.clockRot + 1) % 3; break;
-    case 7: nextPet(); return;
-    case 8: resetOpen = true; resetSel = 0; resetConfirmIdx = 0xFF; return;
-    case 9: settingsOpen = false; characterInvalidate(); return;
+    case 4: s.wifi = !s.wifi; break;   // stored only — no WiFi stack linked
+    case 5: s.led = !s.led; break;
+    case 6: s.hud = !s.hud; break;
+    case 7: s.clockRot = (s.clockRot + 1) % 3; break;
+    case 8: nextPet(); return;
+    case 9: s.showUptime = !s.showUptime; break;
+    case 10: s.rotation = (s.rotation + 1) % 4; hwDisplaySetRotation(s.rotation); break;
+    case 11: resetOpen = true; resetSel = 0; resetConfirmIdx = 0xFF; return;
+    case 12: settingsOpen = false; characterInvalidate(); return;
   }
   settingsSave();
 }
@@ -359,16 +326,24 @@ static void drawSettings() {
     spr.setTextColor(p.textDim, PANEL);
     if (i == 0) {
       spr.printf("%u/4", brightLevel);
-    } else if (i >= 1 && i <= 5) {
-      spr.setTextColor(vals[i-1] ? GREEN : p.textDim, PANEL);
-      spr.print(vals[i-1] ? " on" : "off");
-    } else if (i == 6) {
+    } else if (i == 1) {
+      spr.printf("%u", s.volume);
+    } else if (i >= 2 && i <= 6) {
+      spr.setTextColor(vals[i-2] ? GREEN : p.textDim, PANEL);
+      spr.print(vals[i-2] ? " on" : "off");
+    } else if (i == 7) {
       static const char* const RN[] = { "auto", "port", "land" };
       spr.print(RN[s.clockRot]);
-    } else if (i == 7) {
+    } else if (i == 8) {
       uint8_t total = buddySpeciesCount() + (gifAvailable ? 1 : 0);
       uint8_t pos   = buddyMode ? buddySpeciesIdx() + 1 : total;
       spr.printf("%u/%u", pos, total);
+    } else if (i == 9) {
+      spr.setTextColor(s.showUptime ? GREEN : p.textDim, PANEL);
+      spr.print(s.showUptime ? " on" : "off");
+    } else if (i == 10) {
+      static const char* const ROT[] = { "0", "90", "180", "270" };
+      spr.print(ROT[s.rotation]);
     }
   }
   drawMenuHints(p, mx, mw, my + mh - 12, "Next", "Change");
@@ -479,7 +454,7 @@ PersonaState derive(const TamaState& s) {
   if (!s.connected)            return P_IDLE;
   if (s.sessionsWaiting > 0)   return P_ATTENTION;
   if (s.recentlyCompleted)     return P_CELEBRATE;
-  if (s.sessionsRunning >= 3)  return P_BUSY;
+  if (s.sessionsRunning >= 1)  return P_BUSY;
   return P_IDLE;   // connected, 0+ sessions, nothing urgent — hang out
 }
 
@@ -594,7 +569,6 @@ void drawInfo() {
 
     HwBattery hb = hwBattery();
     int vBat_mV  = hb.mV;
-    int iBat_mA  = hb.mA;       // always 0 on AXP2101 (current not exposed)
     int vBus_mV  = hb.usbPresent ? 5000 : 0;
     int pct      = hb.pct;
     bool usb     = hb.usbPresent;
@@ -613,7 +587,10 @@ void drawInfo() {
 
     spr.setTextColor(p.textDim, p.bg);
     ln("  battery  %d.%02dV", vBat_mV/1000, (vBat_mV%1000)/10);
-    ln("  current  %+dmA", iBat_mA);
+    if (settings().showUptime) {
+      uint32_t last = stats().lastSessionSeconds;
+      ln("  last     %luh %02lum", last / 3600, (last / 60) % 60);
+    }
     if (usb) ln("  usb in   %d.%02dV", vBus_mV/1000, (vBus_mV%1000)/10);
     y += 8;
 
@@ -621,8 +598,10 @@ void drawInfo() {
     ln("SYSTEM");
     spr.setTextColor(p.textDim, p.bg);
     if (ownerName()[0]) ln("  owner    %s", ownerName());
-    uint32_t up = millis() / 1000;
-    ln("  uptime   %luh %02lum", up / 3600, (up / 60) % 60);
+    if (settings().showUptime) {
+      uint32_t up = millis() / 1000;
+      ln("  session  %luh %02lum", up / 3600, (up / 60) % 60);
+    }
     ln("  heap     %uKB", ESP.getFreeHeap() / 1024);
     ln("  bright   %u/4", brightLevel);
     ln("  bt       %s", settings().bt ? (dataBtActive() ? "linked" : "on") : "off");
@@ -961,6 +940,8 @@ void setup() {
   lastInteractMs = millis();
   statsLoad();
   settingsLoad();
+  hwDisplaySetRotation(settings().rotation);
+  hwAudioSetVolume(settings().volume);
   petNameLoad();
   buddyInit();
 
@@ -998,8 +979,40 @@ void loop() {
   uint32_t now = millis();
 
   dataPoll(&tama);
+
+  // "A session finished" — watches the raw running-count, not the derived
+  // busy/celebrate state. With several sessions running, baseState stays
+  // P_BUSY the whole time (derive() only checks sessionsRunning >= 1), so
+  // this fires on the count decreasing at all, not just hitting zero —
+  // otherwise one of three sessions returning would give no signal until
+  // the last one finished.
+  {
+    static uint8_t prevSessionsRunning = 0;
+    if (tama.sessionsRunning < prevSessionsRunning) {
+      beep(400, 95);
+      beep(480, 35);
+      if (busyDimmed) wake();
+    }
+    prevSessionsRunning = tama.sessionsRunning;
+  }
+
   if (statsPollLevelUp()) triggerOneShot(P_CELEBRATE, 3000);
   baseState = derive(tama);
+
+  // Edge-triggered (not level) so this fires once per transition, not every
+  // frame P_CELEBRATE/P_BUSY happens to hold. Attention already wakes via
+  // the prompt-arrival hook below; this is a safety net for the case where
+  // sessionsWaiting flips without a promptId change, plus the busy/celebrate
+  // audio cues so state is readable without looking at the screen.
+  {
+    static PersonaState prevBaseState = P_SLEEP;
+    if (baseState != prevBaseState) {
+      if (baseState == P_BUSY)           beep(1000, 40);
+      else if (baseState == P_CELEBRATE) beep(2000, 100);
+      if ((baseState == P_ATTENTION || baseState == P_CELEBRATE) && busyDimmed) wake();
+      prevBaseState = baseState;
+    }
+  }
 
   // After waking the screen, hold sleep for 12s so users see the wake-up
   // animation. Urgent states (attention, celebrate, busy) override this.
@@ -1143,120 +1156,27 @@ void loop() {
     }
   }
 
-  // ─── Touch (additive — buttons above already handled) ──────────────
-  // Clocking = idle home screen with RTC synced; drives gesture routing:
-  // HUD (!clocking) gets tap-to-pet, clocking gets horizontal-swipe-to-switch-species.
-  bool tpClocking = displayMode == DISP_NORMAL
-                 && !menuOpen && !settingsOpen && !resetOpen && !inPrompt
-                 && tama.sessionsRunning == 0 && tama.sessionsWaiting == 0
-                 && dataRtcValid();
-
+  // ─── Touch (additive — buttons above already handled everything else) ──
+  // Touch does exactly one thing: any stationary tap → heart reaction.
+  // Buttons already cover approve/deny, menu nav, page cycling, transcript
+  // scroll, and species change, so touch no longer needs to be position- or
+  // rotation-aware — dropping it was the deliberate trade to make runtime
+  // screen rotation (Settings.rotation) simple: no coordinate remap needed.
   const HwTouch& tp = hwTouch();
   if (tp.justPressed) { _tpStartX = tp.x; _tpStartY = tp.y; _tpStartMs = millis(); }
 
-  // Approval: tap upper half of the approval area = approve,
-  //           tap lower half = deny.
-  if (inPrompt) {
-    const int APPROVAL_TOP = H - 78;
-    if (tap(0, APPROVAL_TOP,      W, 39)) {
-      char cmd[96];
-      snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permission\",\"id\":\"%s\",\"decision\":\"once\"}", tama.promptId);
-      sendCmd(cmd);
-      responseSent = true;
-      uint32_t tookS = (millis() - promptArrivedMs) / 1000;
-      statsOnApproval(tookS);
-      beep(2400, 60);
-      if (tookS < 5) triggerOneShot(P_HEART, 2000);
-    }
-    if (tap(0, APPROVAL_TOP + 39, W, 39)) {
-      char cmd[96];
-      snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permission\",\"id\":\"%s\",\"decision\":\"deny\"}", tama.promptId);
-      sendCmd(cmd);
-      responseSent = true;
-      statsOnDenial();
-      beep(600, 60);
-    }
-  } else if (menuOpen || settingsOpen || resetOpen) {
-    // Tap a menu row → directly select + confirm. Reuses the layout
-    // constants from drawMenu/drawSettings/drawReset.
-    int n      = menuOpen ? MENU_N : settingsOpen ? SETTINGS_N : RESET_N;
-    int hint   = MENU_HINT_H;
-    int mw     = 118;
-    int mh     = 16 + n * 14 + hint;
-    int mx     = (W - mw) / 2;
-    int my     = (H - mh) / 2;
-    int rowH   = 14;
-    int rowsTop = my + 8;
-    const HwTouch& t = hwTouch();
-    if (t.justPressed && t.x >= mx && t.x < mx + mw &&
-        t.y >= rowsTop && t.y < rowsTop + n * rowH) {
-      int hit = (t.y - rowsTop) / rowH;
-      if (hit >= 0 && hit < n) {
-        beep(2400, 30);
-        if (menuOpen)         { menuSel     = hit; menuConfirm(); }
-        else if (settingsOpen){ settingsSel = hit; applySetting(hit); }
-        else /* resetOpen */  { resetSel    = hit; applyReset(hit); }
-      }
-    }
-  }
-  // END of press-based approval/overlay taps. Below: release-based classifier
-  // for DISP_NORMAL / DISP_PET / DISP_INFO (vertical swipe cycles mode,
-  // horizontal swipe in clock mode cycles species, stationary tap routes
-  // to region-specific actions). Approval and overlay menus are excluded
-  // so an accidental drag can't mis-decide.
-
   if (tp.justReleased
       && !inPrompt && !menuOpen && !settingsOpen && !resetOpen
-      && !napping && !screenOff) {
+      && !napping && !screenOff && !busyDimmed) {
     int dx = (int)tp.x - _tpStartX;
     int dy = (int)tp.y - _tpStartY;
     uint32_t dt = millis() - _tpStartMs;
-
-    if (abs(dy) >= 40 && abs(dy) > abs(dx) * 2 && dt < 500) {
-      // Vertical swipe → advance one step in the flat 9-page cycle
-      // (up = next, down = previous). Key1 keeps the coarser 3-mode cycle.
-      beep(1800, 30);
-      if (dy < 0) swipeNextPage();
-      else        swipePrevPage();
-    }
-    else if (tpClocking && abs(dx) >= 40 && abs(dx) > abs(dy) * 2 && dt < 500) {
-      // Horizontal swipe in clock mode → cycle species (unchanged behaviour).
-      beep(2400, 30);
-      if (dx > 0) nextPet(); else prevPet();
+    if (abs(dx) < 12 && abs(dy) < 12 && dt < 800) {
+      triggerOneShot(P_HEART, 2000);
       _playfulUntil = millis() + PLAYFUL_MS;
-    }
-    else if (abs(dx) < 12 && abs(dy) < 12 && dt < 800) {
-      // Stationary tap → route by press-start position.
-      if (displayMode == DISP_INFO && tappedFrom(W - 60, 0, 60, 70)) {
-        beep(2400, 30);
-        infoPage = (infoPage + 1) % INFO_PAGES;
-      }
-      else if (displayMode == DISP_PET && tappedFrom(W - 60, 0, 60, 70)) {
-        beep(2400, 30);
-        petPage = (petPage + 1) % PET_PAGES;
-        applyDisplayMode();
-      }
-      else if (displayMode == DISP_NORMAL && !tpClocking && tappedFrom(12, 20, W - 24, 110)) {
-        // Tap buddy body → heart reaction (HUD; clock mode uses the block below).
-        triggerOneShot(P_HEART, 2000);
-        _playfulUntil = millis() + PLAYFUL_MS;
-        characterInvalidate();
-        if (buddyMode) buddyInvalidate();
-        beep(2400, 50);
-      }
-      else if (displayMode == DISP_NORMAL && !tpClocking && tappedFrom(0, H - 32, W, 32)) {
-        // Bottom strip → scroll transcript back (mirrors BtnB short-press).
-        beep(2400, 30);
-        msgScroll = (msgScroll >= 30) ? 0 : msgScroll + 1;
-      }
-      else if (tpClocking && _tpStartY < 130) {
-        // Clock mode upper half = buddy region (lower half is clock digits).
-        triggerOneShot(P_HEART, 2000);
-        _playfulUntil = millis() + PLAYFUL_MS;
-        characterInvalidate();
-        if (buddyMode) buddyInvalidate();
-        beep(2400, 50);
-      }
+      characterInvalidate();
+      if (buddyMode) buddyInvalidate();
+      beep(2400, 50);
     }
   }
 
@@ -1326,8 +1246,8 @@ void loop() {
   if (pk && !lastPasskey) { wake(); beep(1800, 60); }
   lastPasskey = pk;
 
-  if (napping || screenOff) {
-    // skip canvas render — face-down or powered off
+  if (napping || screenOff || busyDimmed) {
+    // skip canvas render — face-down, powered off, or busy-idle dimmed
   } else if (buddyMode) {
     buddyTick(activeState);
   } else if (characterLoaded()) {
@@ -1355,7 +1275,7 @@ void loop() {
       spr.print("no character loaded");
     }
   }
-  if (!napping && !screenOff) {
+  if (!napping && !screenOff && !busyDimmed) {
     if (blePasskey()) drawPasskey();
     else if (clocking) drawClock();
     else if (displayMode == DISP_INFO) drawInfo();
@@ -1396,12 +1316,19 @@ void loop() {
   //   USB plugged: never (clock can stay visible indefinitely)
   //   Battery + clock visible: 5 min (CLOCK_OFF_MS_BAT)
   //   Battery + non-clock idle: 30 s (SCREEN_OFF_MS)
-  if (!screenOff && !inPrompt && !_onUsb) {
+  //   Battery + busy (Claude still working): dim instead of sleep — last
+  //   frame stays frozen on-screen rather than going fully blank.
+  if (!screenOff && !busyDimmed && !inPrompt && !_onUsb) {
     uint32_t idleMs    = millis() - lastInteractMs;
     uint32_t threshold = clocking ? CLOCK_OFF_MS_BAT : SCREEN_OFF_MS;
     if (idleMs > threshold) {
-      hwDisplaySleep(true);
-      screenOff = true;
+      if (baseState == P_BUSY) {
+        hwDisplayBrightness(0);
+        busyDimmed = true;
+      } else {
+        hwDisplaySleep(true);
+        screenOff = true;
+      }
     }
   }
 

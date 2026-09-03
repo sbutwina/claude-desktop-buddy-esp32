@@ -162,23 +162,64 @@ The board has three physical keys:
 
 ### Touch (all boards)
 
-Touch is supplemental — keys remain primary:
-
-- **Swipe up / down** — cycle through all 9 pages (Normal → Pet ×2 → Info ×6). The A button (Key1 on S3 1.8/1.75C, PWR on the 2.16 boards) short-press remains a coarser 3-mode jumper.
-- **Swipe left / right** (clock home screen) — cycle ASCII species
-- **Approval screen** — tap upper half = approve, lower half = deny
-- **Menu / Settings / Reset** — tap a row to select+confirm in one go
-- **Info / Pet pages** — tap top-right corner to cycle pages
-- **Normal HUD** — tap buddy = heart, bottom 32 px = scroll transcript
+Touch does exactly one thing: a short stationary tap (not a swipe) → heart
+reaction. Buttons are the only path for approve/deny, menu navigation, page
+cycling, and transcript scrolling — keeping touch position-independent means
+it needs no coordinate remap when the **rotation** setting changes (see
+[Settings menu](#settings-menu)).
 
 ### Sleep & wake
 
 - **USB plugged** — never auto-offs; the clock face stays visible
 - **Battery + clock visible** — auto-off after **5 minutes**
 - **Battery + other screens** — auto-off after **30 seconds**
+- **Battery + Claude busy** — dims instead of sleeping at the same timeout,
+  so the last frame stays visible instead of going blank; wakes back to full
+  brightness the moment a session needs attention, finishes, or celebrates
 - **Approval prompt up** — never auto-offs
 
 Any key press or screen tap wakes the panel.
+
+## Settings menu
+
+Hold the A button (Key1 on 1.8/1.75C, PWR on the 2.16 boards) to open
+**menu → settings**. Short-press A steps through items, B changes the
+selected one.
+
+| Item | Values | Notes |
+| --- | --- | --- |
+| brightness | 0–4 | screen brightness level |
+| volume | 0/20/40/60/80/100 | ES8311 codec hardware volume — not a digital scale, so low settings don't lose bit depth |
+| sound | on/off | mutes all chirps |
+| bluetooth | on/off | stored preference only — the BLE radio stays live either way |
+| wifi | on/off | placeholder — no Wi-Fi stack linked yet |
+| led | on/off | gates the on-screen attention pulse (these boards have no physical LED) |
+| transcript | on/off | HUD/transcript overlay |
+| clock rot | auto/portrait/landscape | on-screen clock face orientation (unrelated to panel `rotation`, below) |
+| ascii pet | cycles species | includes GIF mode if a character pack is installed |
+| uptime | on/off | shows/hides the session + last-session rows on the DEVICE info page |
+| rotation | 0/90/180/270 | physical panel rotation, applied live via MADCTL — **CO5300 boards only** (1.75C, S3 2.16"); no-op on the SH8601-based 1.8" and C6 2.16" |
+| reset | — | opens the reset submenu (delete char / factory reset) |
+| back | — | closes settings |
+
+## Audio cues
+
+Every chirp is a synthesized sine tone (`hwBeep(freqHz, durMs)`) with a 4ms
+fade in/out, queued so back-to-back tones play in sequence instead of
+clipping each other.
+
+| Event | Tone(s) |
+| --- | --- |
+| Approve | 2400 Hz / 60 ms |
+| Deny | 600 Hz / 60 ms |
+| Menu / navigation | 1800 Hz / 30 ms |
+| Needs attention (prompt arrives) | 1200 Hz / 80 ms |
+| Busy started | 1000 Hz / 40 ms |
+| Session finished | 400 Hz / 95 ms → 480 Hz / 35 ms |
+| Celebrate (level up) | 2000 Hz / 100 ms |
+
+"Session finished" fires whenever the running-session count *decreases*,
+even with other sessions still active — not only when the last one ends.
 
 ## Notable differences from the M5StickC original
 
@@ -187,13 +228,15 @@ Any key press or screen tap wakes the panel.
   (M5 used a GPIO red LED; the AMOLED board has none)
 - **Landscape clock removed** — 368×448 is near-square; rotation pointless
 - **Battery current not exposed** — XPowersLib / AXP2101 only reports
-  voltage, %, and isCharging. The info-page "current" reads 0 mA
+  voltage, %, and isCharging, never actual current draw. The DEVICE info
+  page used to show a `current +0mA` row for this; it's now `last`
+  (previous session's duration) instead — see **uptime** in the settings menu
 - **Transcript supports CJK** — uses `chill7_h_cjk` font for the HUD lines
   so Chinese / Japanese log entries render legibly
 - **Other UI strings stay ASCII** — non-ASCII bytes in `msg`, `promptTool`
   and `promptHint` are replaced with random Matrix-rain symbols rather
   than rendering as garbage glyphs
-- **ESP32-S3 2.16" rotation** — the Waveshare ESP32-S3-Touch-AMOLED-2.16 panel is physically mounted 90° rotated from its natural orientation; this is handled in firmware via MADCTL=0xA0 and is transparent to the UI code
+- **ESP32-S3 2.16" rotation** — the Waveshare ESP32-S3-Touch-AMOLED-2.16 panel is physically mounted rotated from its natural orientation. This used to be a hardcoded `BOARD_CO5300_MADCTL` value in the board header; it's now the **rotation** setting in the settings menu, applied live via the same MADCTL write — switchable without reflashing, and defaults to whatever the board header used to hardcode so existing devices don't flip on first boot of new firmware
 
 ## Per-state animations
 

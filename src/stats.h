@@ -20,6 +20,7 @@ struct Stats {
   uint8_t  velCount;
   uint8_t  level;
   uint32_t tokens;          // cumulative output tokens, drives level
+  uint32_t lastSessionSeconds;  // elapsed seconds as of the last checkpoint before this boot
 };
 
 static Stats _stats;
@@ -35,6 +36,9 @@ inline void statsLoad() {
   _stats.velCount   = _prefs.getUChar("vcnt", 0);
   _stats.level      = _prefs.getUChar("lvl", 0);
   _stats.tokens     = _prefs.getUInt("tok", 0);
+  // Snapshot whatever was checkpointed before this boot as "last session".
+  // Not necessarily a clean shutdown value — see statsSave()'s "sess" write.
+  _stats.lastSessionSeconds = _prefs.getUInt("sess", 0);
   size_t got = _prefs.getBytes("vel", _stats.velocity, sizeof(_stats.velocity));
   if (got != sizeof(_stats.velocity)) memset(_stats.velocity, 0, sizeof(_stats.velocity));
   _prefs.end();
@@ -55,6 +59,11 @@ inline void statsSave() {
   _prefs.putUChar("vcnt", _stats.velCount);
   _prefs.putUChar("lvl", _stats.level);
   _prefs.putUInt("tok", _stats.tokens);
+  // Piggyback the running-uptime checkpoint on the same sparse writes as
+  // everything else here — no new timer, no extra NVS wear. Worst case on
+  // a hard power-off: "last session" reads whatever the previous checkpoint
+  // was, not the true final value.
+  _prefs.putUInt("sess", millis() / 1000);
   _prefs.putBytes("vel", _stats.velocity, sizeof(_stats.velocity));
   _prefs.end();
   _dirty = false;
@@ -183,9 +192,12 @@ struct Settings {
   bool led;
   bool hud;
   uint8_t clockRot;  // 0=auto 1=portrait 2=landscape
+  bool showUptime;   // gates the session/last-session rows on the DEVICE info page
+  uint8_t rotation;  // 0=normal 1=90CW 2=180 3=90CCW — see hwDisplaySetRotation()
+  uint8_t volume;    // 0..100, codec hardware volume — see hwAudioSetVolume()
 };
 
-static Settings _settings = { true, true, false, true, true, 0 };
+static Settings _settings = { true, true, false, true, true, 0, true, BOARD_ROTATION_DEFAULT, 60 };
 
 inline void settingsLoad() {
   _prefs.begin("buddy", true);
@@ -196,6 +208,11 @@ inline void settingsLoad() {
   _settings.hud      = _prefs.getBool("s_hud", true);
   _settings.clockRot = _prefs.getUChar("s_crot", 0);
   if (_settings.clockRot > 2) _settings.clockRot = 0;
+  _settings.showUptime = _prefs.getBool("s_upt", true);
+  _settings.rotation   = _prefs.getUChar("s_rot", BOARD_ROTATION_DEFAULT);
+  if (_settings.rotation > 3) _settings.rotation = 0;
+  _settings.volume     = _prefs.getUChar("s_vol", 60);
+  if (_settings.volume > 100) _settings.volume = 100;
   _prefs.end();
 }
 
@@ -207,6 +224,9 @@ inline void settingsSave() {
   _prefs.putBool("s_led", _settings.led);
   _prefs.putBool("s_hud", _settings.hud);
   _prefs.putUChar("s_crot", _settings.clockRot);
+  _prefs.putBool("s_upt", _settings.showUptime);
+  _prefs.putUChar("s_rot", _settings.rotation);
+  _prefs.putUChar("s_vol", _settings.volume);
   _prefs.end();
 }
 

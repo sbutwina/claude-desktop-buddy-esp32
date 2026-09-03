@@ -107,6 +107,20 @@ void hwDisplaySleep(bool off) {
   }
 }
 
+void hwDisplaySetRotation(uint8_t idx) {
+#if BOARD_DISPLAY_CO5300
+  // Same MADCTL bytes previously hand-picked via BOARD_CO5300_MADCTL:
+  // 0x00 normal, 0x60 90°CW (MV+MX), 0xC0 180° (MX+MY), 0xA0 90°CCW (MV+MY).
+  static const uint8_t MADCTL[4] = { 0x00, 0x60, 0xC0, 0xA0 };
+  if (idx > 3) idx = 0;
+  s_bus->beginWrite();
+  s_bus->writeC8D8(0x36, MADCTL[idx]);
+  s_bus->endWrite();
+#else
+  (void)idx;   // rotation not wired for this panel driver
+#endif
+}
+
 static uint16_t s_lineBuf[LCD_W_PHYS];   // one physical row, internal RAM
 static bool     s_borderAlertOn = false;
 
