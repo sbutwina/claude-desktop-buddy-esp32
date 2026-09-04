@@ -81,6 +81,11 @@ static void _matrixify(char* s) {
 }
 
 static void _applyJson(const char* line, TamaState* out) {
+#ifdef BRIDGE_DEBUG
+  // -DBRIDGE_DEBUG (platformio.ini) echoes every incoming heartbeat — BLE
+  // or USB, whichever's talking — to Serial so it shows in `pio device monitor`.
+  Serial.printf("[bridge] %s\n", line);
+#endif
   JsonDocument doc;
   if (deserializeJson(doc, line)) return;
   if (xferCommand(doc)) { _lastLiveMs = millis(); return; }
