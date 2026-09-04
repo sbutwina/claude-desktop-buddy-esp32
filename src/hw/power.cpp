@@ -84,4 +84,13 @@ bool hwAxpPekeyLongPress() {
   return hit;
 }
 
+uint8_t hwAxpPekeyPoll() {
+  s_pmu.getIrqStatus();
+  uint8_t r = 0;
+  if (s_pmu.isPekeyShortPressIrq()) r |= 0x1;
+  if (s_pmu.isPekeyLongPressIrq())  r |= 0x2;
+  if (r) s_pmu.clearIrqStatus();
+  return r;
+}
+
 XPowersPMU* hwPmuRef() { return &s_pmu; }

@@ -68,8 +68,6 @@ bool    btnALong    = false;
 enum DisplayMode { DISP_NORMAL, DISP_PET, DISP_INFO, DISP_COUNT };
 uint8_t displayMode = DISP_NORMAL;
 uint8_t infoPage = 0;
-uint8_t petPage = 0;
-const uint8_t PET_PAGES = 2;
 uint8_t msgScroll = 0;
 uint16_t lastLineGen = 0;
 char     lastPromptId[40] = "";
@@ -83,6 +81,7 @@ bool     screenOff = false;
 bool     busyDimmed = false;
 bool     swallowBtnA = false;
 bool     swallowBtnB = false;
+bool     swallowBtnBoot = false;
 bool     buddyMode = false;
 bool     gifAvailable = false;
 const uint8_t SPECIES_GIF = 0xFF;   // species NVS sentinel: use the installed GIF
@@ -148,6 +147,16 @@ static void wake() {
   if (dimmed) { applyBrightness(); dimmed = false; }
   if (busyDimmed) { applyBrightness(); busyDimmed = false; }
 }
+// wake() arms a 12 s window that forces baseState to P_SLEEP so the buddy is
+// seen waking up. That read well when P_SLEEP drew a sleeping buddy; with the
+// dotsOnly render path P_SLEEP paints a blank screen instead, which is
+// indistinguishable from the panel still being off. A wake the user asked for
+// by pressing a button should show the UI immediately, so skip the transition.
+static inline void wakeForUser() {
+  wake();
+  wakeTransitionUntil = 0;
+}
+
 bool     responseSent = false;
 
 static void beep(uint16_t freq, uint16_t dur) {
@@ -165,15 +174,39 @@ static uint32_t _tpStartMs = 0;
 static const uint32_t PLAYFUL_MS = 3UL * 60UL * 1000UL;
 static uint32_t _playfulUntil = 0;
 
+// ─── Serial instrumentation for `pio device monitor` ────────────────────
+// Enabled by -DBTN_DEBUG (set in platformio.ini). Emits two line types, both
+// timestamped in ms so they interleave in causal order:
+//
+//   [   12345] BTN PWR tap held=87 -> screen OFF
+//   [   12346] ST  active=sleep base=sleep dots=1 off=0 nap=0 ...
+//
+// BTN lines record every button edge *and* the action it dispatched; ST lines
+// print the render/persona tuple only when it changes. Together they answer
+// "I pressed X and the screen went black" — grep ^.*BTN or ^.*ST.
+//
+// NOTE: -DBRIDGE_DEBUG echoes every incoming JSON heartbeat and will bury
+// these. Comment it out in platformio.ini while doing button runs.
+#ifdef BTN_DEBUG
+  #define BTNLOG(fmt, ...) Serial.printf("[%8lu] BTN " fmt "\n", (unsigned long)millis(), ##__VA_ARGS__)
+#else
+  #define BTNLOG(fmt, ...) do {} while (0)
+#endif
+
 static void sendCmd(const char* json) {
   Serial.println(json);
   size_t n = strlen(json);
   bleWrite((const uint8_t*)json, n);
   bleWrite((const uint8_t*)"\n", 1);
 }
-const uint8_t INFO_PAGES = 6;
+const uint8_t INFO_PAGES = 7;
 const uint8_t INFO_PG_BUTTONS = 1;
-const uint8_t INFO_PG_CREDITS = 5;
+const uint8_t INFO_PG_CREDITS = 6;
+
+// Long-press thresholds. PWR's is deliberately longer than the others —
+// it powers the device off, so it should be hard to trigger by accident.
+const uint32_t LONG_MS     = 600;
+const uint32_t PWR_LONG_MS = 1200;
 
 void applyDisplayMode() {
   bool peek = displayMode != DISP_NORMAL;
@@ -537,6 +570,22 @@ void drawInfo() {
 
   } else if (infoPage == 1) {
     _infoHeader(p, y, "BUTTONS", infoPage);
+#if BOARD_BTN_THIRD
+    spr.setTextColor(p.text, p.bg);    ln("PWR");
+    spr.setTextColor(p.textDim, p.bg); ln("    screen on/off");
+    ln("    hold: power off"); y += 4;
+    spr.setTextColor(p.text, p.bg);    ln("+/KEY");
+    spr.setTextColor(p.textDim, p.bg); ln("    stats page");
+    ln("    hold: menu"); y += 4;
+    spr.setTextColor(p.text, p.bg);    ln("BOOT");
+    spr.setTextColor(p.textDim, p.bg); ln("    info pages");
+    ln("    hold: mute"); y += 4;
+    spr.setTextColor(p.text, p.bg);    ln("in menu");
+    spr.setTextColor(p.textDim, p.bg); ln("    PWR up, KEY down");
+    ln("    BOOT selects"); y += 4;
+    spr.setTextColor(p.text, p.bg);    ln("on prompt");
+    spr.setTextColor(p.textDim, p.bg); ln("    KEY yes, BOOT no");
+#else
     spr.setTextColor(p.text, p.bg);    ln("A   front");
     spr.setTextColor(p.textDim, p.bg); ln("    next screen");
     ln("    approve prompt"); y += 4;
@@ -548,6 +597,7 @@ void drawInfo() {
     spr.setTextColor(p.text, p.bg);    ln("Power  left side");
     spr.setTextColor(p.textDim, p.bg); ln("    tap = screen off");
     ln("    hold 6s = off");
+#endif
 
   } else if (infoPage == 2) {
     _infoHeader(p, y, "CLAUDE", infoPage);
@@ -638,6 +688,18 @@ void drawInfo() {
       y += 4;
       ln("auto-connects via BLE");
     }
+
+  } else if (infoPage == 5) {
+    _infoHeader(p, y, "STATS", infoPage);
+    spr.setTextColor(p.body, p.bg);    ln("MOOD");
+    spr.setTextColor(p.textDim, p.bg); ln(" approve fast = up");
+    ln(" deny lots = down"); y += 4;
+    spr.setTextColor(p.body, p.bg);    ln("FED");
+    spr.setTextColor(p.textDim, p.bg); ln(" 50K tokens =");
+    ln(" level up + confetti"); y += 4;
+    spr.setTextColor(p.body, p.bg);    ln("ENERGY");
+    spr.setTextColor(p.textDim, p.bg); ln(" face-down to nap");
+    ln(" refills to full");
 
   } else {
     _infoHeader(p, y, "CREDITS", infoPage);
@@ -819,45 +881,13 @@ static void drawPetStats(const Palette& p) {
   tokFmt("today    ", tama.tokensToday, y + 40);
 }
 
-static void drawPetHowTo(const Palette& p) {
-  const int TOP = 70;
-  spr.fillRect(0, TOP, W, H - TOP, p.bg);
-  spr.setTextSize(1);
-  int y = TOP + 2;
-  auto ln = [&](uint16_t c, const char* s) {
-    spr.setTextColor(c, p.bg); spr.setCursor(SAFE_L, y); spr.print(s); y += 9;
-  };
-  auto gap = [&]() { y += 4; };
-
-  y += 12;  // room for the PET header drawn by drawPet()
-
-  ln(p.body,    "MOOD");
-  ln(p.textDim, " approve fast = up");
-  ln(p.textDim, " deny lots = down"); gap();
-
-  ln(p.body,    "FED");
-  ln(p.textDim, " 50K tokens =");
-  ln(p.textDim, " level up + confetti"); gap();
-
-  ln(p.body,    "ENERGY");
-  ln(p.textDim, " face-down to nap");
-  ln(p.textDim, " refills to full"); gap();
-
-  ln(p.textDim, "idle 30s = off");
-  ln(p.textDim, "any button = wake"); gap();
-
-  ln(p.textDim, "A: screens  B: page");
-  ln(p.textDim, "hold A: menu");
-}
-
 void drawPet() {
   const Palette& p = characterPalette();
   int y = 70;
 
-  if (petPage == 0) drawPetStats(p);
-  else drawPetHowTo(p);
+  drawPetStats(p);
 
-  // Header on top of whichever page drew — title left, counter right
+  // Header on top — just the name; single page now, so no counter
   spr.setTextSize(1);
   spr.setTextColor(p.text, p.bg);
   spr.setCursor(SAFE_L, y + 2);
@@ -866,9 +896,6 @@ void drawPet() {
   } else {
     spr.print(petName());
   }
-  spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(SAFE_R - 24, y + 2);
-  spr.printf("%u/%u", petPage + 1, PET_PAGES);
 }
 
 void drawHUD() {
@@ -973,6 +1000,30 @@ void setup() {
   Serial.printf("buddy: %s\n", buddyMode ? "ASCII mode" : "GIF character loaded");
 }
 
+#ifdef BTN_DEBUG
+// Prints only on change, so an idle device stays quiet and every line marks a
+// real transition. dotsOnly is the one to watch: dots=1 with off=0 means the
+// panel is powered and being deliberately painted blank + dots.
+static void stateLog(bool dotsOnly, bool clocking, bool inPrompt) {
+  static const char* const MODE[] = { "NORM", "PET", "INFO" };
+  static char prev[192] = "";
+  char cur[192];
+  snprintf(cur, sizeof(cur),
+           "active=%s base=%s dots=%d off=%d dim=%d bdim=%d nap=%d "
+           "mode=%s pg=%u clk=%d prompt=%d menu=%d set=%d rst=%d",
+           stateNames[activeState], stateNames[baseState],
+           dotsOnly, screenOff, dimmed, busyDimmed, napping,
+           MODE[displayMode < DISP_COUNT ? displayMode : 0], infoPage,
+           clocking, inPrompt, menuOpen, settingsOpen, resetOpen);
+  if (strcmp(cur, prev) == 0) return;
+  Serial.printf("[%8lu] ST  %s\n", (unsigned long)millis(), cur);
+  strncpy(prev, cur, sizeof(prev) - 1);
+  prev[sizeof(prev) - 1] = 0;
+}
+#else
+static inline void stateLog(bool, bool, bool) {}
+#endif
+
 void loop() {
   hwInputUpdate();
   ;
@@ -1059,6 +1110,172 @@ void loop() {
 
   bool inPrompt = tama.promptId[0] && !responseSent;
 
+#if BOARD_BTN_THIRD
+  // ── Three-key boards (2.16): PWR / +/KEY / BOOT- ──────────────────────
+  //   PWR   tap  = screen on/off, or cursor-up while a list is open
+  //         hold = power off (everywhere)
+  //   +/KEY tap  = approve / cursor-down / toggle buddy stats
+  //         hold = open menu, or step back one level inside one
+  //   BOOT  tap  = deny / select item / cycle info pages
+  //         hold = mute/unmute (everywhere)
+  if (hwBtnA().wasPressed)    BTNLOG("PWR  down");
+  if (hwBtnB().wasPressed)    BTNLOG("KEY  down");
+  if (hwBtnBoot().wasPressed) BTNLOG("BOOT down");
+
+  // PWR is excluded here: its own tap handler decides wake-vs-sleep from
+  // screenOff directly, so it must not be pre-woken by this block.
+  if (hwBtnB().isPressed || hwBtnBoot().isPressed) {
+    if (screenOff) {
+      if (hwBtnB().isPressed)    swallowBtnB    = true;
+      if (hwBtnBoot().isPressed) swallowBtnBoot = true;
+    }
+    wakeForUser();
+  }
+
+  static bool pwrLong = false;
+  if (hwBtnA().pressedFor(PWR_LONG_MS) && !pwrLong) {
+    pwrLong = true;
+    BTNLOG("PWR  hold -> POWER OFF");
+    beep(800, 80);
+    hwPowerOff();
+  }
+  if (hwBtnA().wasReleased) {
+    uint32_t held = millis() - hwBtnA().pressedAt;
+    if (!pwrLong) {
+      if (resetOpen) {
+        beep(1800, 30);
+        resetSel = (resetSel + RESET_N - 1) % RESET_N;
+        resetConfirmIdx = 0xFF;
+        BTNLOG("PWR  tap held=%lu -> reset cursor up (%u)", (unsigned long)held, resetSel);
+      } else if (settingsOpen) {
+        beep(1800, 30);
+        settingsSel = (settingsSel + SETTINGS_N - 1) % SETTINGS_N;
+        BTNLOG("PWR  tap held=%lu -> settings cursor up (%u)", (unsigned long)held, settingsSel);
+      } else if (menuOpen) {
+        beep(1800, 30);
+        menuSel = (menuSel + MENU_N - 1) % MENU_N;
+        BTNLOG("PWR  tap held=%lu -> menu cursor up (%u)", (unsigned long)held, menuSel);
+      } else if (screenOff || dimmed || busyDimmed) {
+        wakeForUser();
+        BTNLOG("PWR  tap held=%lu -> screen ON", (unsigned long)held);
+      } else {
+        hwDisplaySleep(true);
+        screenOff = true;
+        BTNLOG("PWR  tap held=%lu -> screen OFF", (unsigned long)held);
+      }
+    }
+    pwrLong = false;
+  }
+
+  static bool keyLong = false;
+  if (hwBtnB().pressedFor(LONG_MS) && !keyLong && !swallowBtnB) {
+    keyLong = true;
+    beep(800, 60);
+    if (resetOpen) {
+      resetOpen = false;
+      BTNLOG("KEY  hold -> leave reset");
+    } else if (settingsOpen) {
+      settingsOpen = false;
+      characterInvalidate();
+      BTNLOG("KEY  hold -> leave settings");
+    } else {
+      menuOpen = !menuOpen;
+      menuSel = 0;
+      if (!menuOpen) characterInvalidate();
+      BTNLOG("KEY  hold -> menu %s", menuOpen ? "OPEN" : "CLOSE");
+    }
+  }
+  if (hwBtnB().wasReleased) {
+    uint32_t held = millis() - hwBtnB().pressedAt;
+    if (!keyLong && !swallowBtnB) {
+      if (inPrompt) {
+        char cmd[96];
+        snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permission\",\"id\":\"%s\",\"decision\":\"once\"}", tama.promptId);
+        sendCmd(cmd);
+        responseSent = true;
+        uint32_t tookS = (millis() - promptArrivedMs) / 1000;
+        statsOnApproval(tookS);
+        beep(2400, 60);
+        if (tookS < 5) triggerOneShot(P_HEART, 2000);
+        BTNLOG("KEY  tap held=%lu -> APPROVE (%lus)", (unsigned long)held, (unsigned long)tookS);
+      } else if (resetOpen) {
+        beep(1800, 30);
+        resetSel = (resetSel + 1) % RESET_N;
+        resetConfirmIdx = 0xFF;
+        BTNLOG("KEY  tap held=%lu -> reset cursor down (%u)", (unsigned long)held, resetSel);
+      } else if (settingsOpen) {
+        beep(1800, 30);
+        settingsSel = (settingsSel + 1) % SETTINGS_N;
+        BTNLOG("KEY  tap held=%lu -> settings cursor down (%u)", (unsigned long)held, settingsSel);
+      } else if (menuOpen) {
+        beep(1800, 30);
+        menuSel = (menuSel + 1) % MENU_N;
+        BTNLOG("KEY  tap held=%lu -> menu cursor down (%u)", (unsigned long)held, menuSel);
+      } else {
+        beep(1800, 30);
+        displayMode = (displayMode == DISP_PET) ? DISP_NORMAL : DISP_PET;
+        applyDisplayMode();
+        BTNLOG("KEY  tap held=%lu -> mode %s", (unsigned long)held,
+               displayMode == DISP_PET ? "PET" : "NORMAL");
+      }
+    } else {
+      BTNLOG("KEY  tap held=%lu -> swallowed (long=%d wake=%d)",
+             (unsigned long)held, keyLong, swallowBtnB);
+    }
+    keyLong = false;
+    swallowBtnB = false;
+  }
+
+  static bool bootLong = false;
+  if (hwBtnBoot().pressedFor(LONG_MS) && !bootLong && !swallowBtnBoot) {
+    bootLong = true;
+    applySetting(2);                     // toggles settings().sound
+    if (settings().sound) beep(1800, 80);  // can only be heard un-muting
+    BTNLOG("BOOT hold -> sound %s", settings().sound ? "ON" : "MUTED");
+  }
+  if (hwBtnBoot().wasReleased) {
+    uint32_t held = millis() - hwBtnBoot().pressedAt;
+    if (!bootLong && !swallowBtnBoot) {
+      if (inPrompt) {
+        char cmd[96];
+        snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permission\",\"id\":\"%s\",\"decision\":\"deny\"}", tama.promptId);
+        sendCmd(cmd);
+        responseSent = true;
+        statsOnDenial();
+        beep(600, 60);
+        BTNLOG("BOOT tap held=%lu -> DENY", (unsigned long)held);
+      } else if (resetOpen) {
+        beep(2400, 30);
+        BTNLOG("BOOT tap held=%lu -> reset select (%u)", (unsigned long)held, resetSel);
+        applyReset(resetSel);
+      } else if (settingsOpen) {
+        beep(2400, 30);
+        BTNLOG("BOOT tap held=%lu -> settings select (%u)", (unsigned long)held, settingsSel);
+        applySetting(settingsSel);
+      } else if (menuOpen) {
+        beep(2400, 30);
+        BTNLOG("BOOT tap held=%lu -> menu select (%u)", (unsigned long)held, menuSel);
+        menuConfirm();
+      } else if (displayMode == DISP_INFO) {
+        beep(2400, 30);
+        infoPage = (infoPage + 1) % INFO_PAGES;
+        BTNLOG("BOOT tap held=%lu -> info page %u/%u", (unsigned long)held,
+               infoPage + 1, INFO_PAGES);
+      } else {
+        beep(2400, 30);
+        displayMode = DISP_INFO;
+        applyDisplayMode();
+        BTNLOG("BOOT tap held=%lu -> mode INFO (page %u)", (unsigned long)held, infoPage + 1);
+      }
+    } else {
+      BTNLOG("BOOT tap held=%lu -> swallowed (long=%d wake=%d)",
+             (unsigned long)held, bootLong, swallowBtnBoot);
+    }
+    bootLong = false;
+    swallowBtnBoot = false;
+  }
+#else
+  // ── Two-key boards (1.8 / 1.75C): BtnA (Key1) + BtnB (AXP short-press) ─
   // Button-press wake. Track which button woke the screen so its full
   // press cycle (including long-press) is swallowed — you don't want
   // BtnA-to-wake to also cycle displayMode or open the menu.
@@ -1150,14 +1367,13 @@ void loop() {
       beep(2400, 30);
       infoPage = (infoPage + 1) % INFO_PAGES;
     } else if (displayMode == DISP_PET) {
-      beep(2400, 30);
-      petPage = (petPage + 1) % PET_PAGES;
-      applyDisplayMode();
+      beep(2400, 30);   // single stats page now — nothing left to cycle
     } else {
       beep(2400, 30);
       msgScroll = (msgScroll >= 30) ? 0 : msgScroll + 1;
     }
   }
+#endif
 
   // ─── Touch (additive — buttons above already handled everything else) ──
   // Touch does exactly one thing: any stationary tap → heart reaction.
@@ -1299,12 +1515,16 @@ void loop() {
       if (resetOpen) drawReset();
       else if (settingsOpen) drawSettings();
       else if (menuOpen) drawMenu();
-      // Menu/settings/reset/Info already put their own text in this corner.
-      if (!(menuOpen || settingsOpen || resetOpen || displayMode == DISP_INFO))
-        sessionDots::draw();
+      // Dots on every screen. They sit at the very top-right (y = SAFE_T+2),
+      // which clears Info's content region (starts at y=70) and both the menu
+      // and reset panels. Only the 13-row settings panel reaches that high,
+      // and a 2px dot over its top border beats losing session state.
+      sessionDots::draw();
     }
     hwDisplayPush();
   }
+
+  stateLog(dotsOnly, clocking, inPrompt);
 
   // Face-down nap: dim immediately, pause animations, accumulate sleep time.
   // Skipped during approval — you're holding it to read, not sleeping it.
@@ -1374,6 +1594,9 @@ void loop() {
   } else if (napping
           || hwTouch().down
           || hwBtnA().isPressed || hwBtnB().isPressed
+#if BOARD_BTN_THIRD
+          || hwBtnBoot().isPressed
+#endif
           || inPrompt || menuOpen || settingsOpen || resetOpen
           || (int32_t)(now - oneShotUntil) < 0
           || xferActive()

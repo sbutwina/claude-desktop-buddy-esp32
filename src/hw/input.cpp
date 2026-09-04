@@ -91,25 +91,18 @@ static void scanKey2() {
 #endif
 
 #if BOARD_BTN_THIRD
-// BOOT key (GPIO9 on 2.16) acts as a menu shortcut: a short tap synthesises
-// BTN_A_LONG_PRESS, which main.cpp's existing handler treats as "open menu".
-// main.cpp itself is unchanged.
-static uint32_t s_bootPressedAt = 0;
+// BOOT/- is a full button in its own right, scanned exactly like Key1/Key2.
+// It used to forge a press/release into s_a (i.e. into hwBtnA/PWR) so the
+// menu-open handler would fire — which meant a BOOT tap was indistinguishable
+// from a PWR event downstream. It gets its own state now.
+static HwBtn s_boot;
 static void scanBootKey() {
+  uint32_t now = millis();
   bool pressed = digitalRead(PIN_KEY_BOOT) == LOW;
-  if (pressed && !s_bootPressedAt) {
-    s_bootPressedAt = millis();
-  } else if (!pressed && s_bootPressedAt) {
-    uint32_t held = millis() - s_bootPressedAt;
-    s_bootPressedAt = 0;
-    if (held > 30 && held < 1000) {
-      // Synthesise a long-press of A so the menu opens.
-      s_a.wasPressed  = true;
-      s_a.wasReleased = true;
-      s_a.pressedAt   = millis() - 1500;  // > LONG_PRESS_MS so isLongPress check passes
-      s_a.isPressed   = false;
-    }
-  }
+  s_boot.wasPressed  = pressed && !s_boot.isPressed;
+  s_boot.wasReleased = !pressed && s_boot.isPressed;
+  if (s_boot.wasPressed) s_boot.pressedAt = now;
+  s_boot.isPressed = pressed;
 }
 #endif
 
@@ -226,6 +219,10 @@ HwBtn& hwBtnB() { return s_a; }
 #else
 HwBtn& hwBtnA() { return s_a; }
 HwBtn& hwBtnB() { return s_b; }
+#endif
+
+#if BOARD_BTN_THIRD
+HwBtn& hwBtnBoot() { return s_boot; }
 #endif
 
 uint8_t hwAxpBtnEvent() {
