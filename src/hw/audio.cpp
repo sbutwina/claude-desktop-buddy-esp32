@@ -112,10 +112,8 @@ static void beepTask(void*) {
 }
 
 bool hwAudioInit() {
-#if BOARD_HAS_PA_CTRL
   pinMode(PIN_PA_CTRL, OUTPUT);
   digitalWrite(PIN_PA_CTRL, HIGH);
-#endif
 
   if (!i2sInit())          { Serial.println("hwAudio: I2S init failed");   return false; }
   if (!es8311CodecInit())  { Serial.println("hwAudio: ES8311 init failed"); return false; }
