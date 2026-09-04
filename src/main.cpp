@@ -1287,19 +1287,6 @@ void loop() {
     wake();
   }
 
-  // Key3 long-press (~1s, AXP IRQ 0x04) toggles screen off — replaces
-  // M5StickC's PWR short-press behaviour (we only have 2 buttons; short
-  // press of Key3 is BtnB, so screen-toggle moves to long-press).
-  // Very-long-press (6s) still powers off via AXP hardware.
-  if (hwAxpBtnEvent() == 0x04) {
-    if (screenOff) {
-      wake();
-    } else {
-      hwDisplaySleep(true);
-      screenOff = true;
-    }
-  }
-
   if (hwBtnA().pressedFor(600) && !btnALong && !swallowBtnA) {
     btnALong = true;
     beep(800, 60);
