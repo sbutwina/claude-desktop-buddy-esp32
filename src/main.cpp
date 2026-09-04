@@ -37,6 +37,7 @@ static void startBt() {
 
 #include "character.h"
 #include "stats.h"
+#include "session_dots.h"
 const int W = HW_W;
 const int H = HW_H;
 const int CX = W / 2;
@@ -979,6 +980,8 @@ void loop() {
   uint32_t now = millis();
 
   dataPoll(&tama);
+  sessionDots::update(tama.sessionsRunning, tama.sessionsWaiting);
+  sessionDots::tick();
 
   // "A session finished" — watches the raw running-count, not the derived
   // busy/celebrate state. With several sessions running, baseState stays
@@ -1246,8 +1249,17 @@ void loop() {
   if (pk && !lastPasskey) { wake(); beep(1800, 60); }
   lastPasskey = pk;
 
-  if (napping || screenOff || busyDimmed) {
-    // skip canvas render — face-down, powered off, or busy-idle dimmed
+  // Dots-only replaces the usual animation for face-down nap, battery
+  // busy-dim, and the ambient nighttime P_SLEEP state — "only the dots
+  // show" while asleep. screenOff is the one exception: the panel is
+  // truly powered off there (hwDisplaySleep(true)), so nothing can show
+  // regardless of what's pushed to the framebuffer.
+  bool dotsOnly = napping || busyDimmed || activeState == P_SLEEP;
+
+  if (screenOff) {
+    // skip canvas render — panel truly powered off
+  } else if (dotsOnly) {
+    spr.fillScreen(characterPalette().bg);
   } else if (buddyMode) {
     buddyTick(activeState);
   } else if (characterLoaded()) {
@@ -1275,15 +1287,22 @@ void loop() {
       spr.print("no character loaded");
     }
   }
-  if (!napping && !screenOff && !busyDimmed) {
-    if (blePasskey()) drawPasskey();
-    else if (clocking) drawClock();
-    else if (displayMode == DISP_INFO) drawInfo();
-    else if (displayMode == DISP_PET) drawPet();
-    else if (settings().hud) drawHUD();
-    if (resetOpen) drawReset();
-    else if (settingsOpen) drawSettings();
-    else if (menuOpen) drawMenu();
+  if (!screenOff) {
+    if (dotsOnly) {
+      sessionDots::draw();
+    } else {
+      if (blePasskey()) drawPasskey();
+      else if (clocking) drawClock();
+      else if (displayMode == DISP_INFO) drawInfo();
+      else if (displayMode == DISP_PET) drawPet();
+      else if (settings().hud) drawHUD();
+      if (resetOpen) drawReset();
+      else if (settingsOpen) drawSettings();
+      else if (menuOpen) drawMenu();
+      // Menu/settings/reset/Info already put their own text in this corner.
+      if (!(menuOpen || settingsOpen || resetOpen || displayMode == DISP_INFO))
+        sessionDots::draw();
+    }
     hwDisplayPush();
   }
 
