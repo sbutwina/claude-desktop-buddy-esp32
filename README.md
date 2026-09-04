@@ -32,7 +32,7 @@ under `src/boards/`.
 | IMU | QMI8658 | same | same | same |
 | PMU | AXP2101 | same | same | same |
 | Audio | ES8311 + amp + speaker | same | ES8311 + ES7210 (output + mic codec) | same |
-| Buttons | Key1 (GPIO0 BOOT) + AXP PEK | same (physical layout swapped; corrected in firmware) | three: PWR/IO10/BOOT; PWR is active-HIGH via MOSFET inverter + AXP PWRON | three: PWR/IO18/BOOT; PWR is active-HIGH via BSS138 inverter |
+| Buttons | Key1 (GPIO0 BOOT) + AXP PEK | same (physical layout swapped; corrected in firmware) | three: PWR / +/KEY / BOOT-; PWR is active-HIGH via MOSFET inverter + AXP PWRON | three: PWR / +/KEY / BOOT-; PWR is active-HIGH via BSS138 inverter |
 | Canvas → panel | 184×224 canvas → **2× nearest-neighbor** → 368×448 | 184×224 canvas → **1.5× bilinear** → 276×336 centred in 466×466 (black border) | 184×224 canvas → **2× nearest-neighbor** → 368×448 centred at (56, 16) in 480×480 (56 px L/R / 16 px T/B black border) | 184×224 canvas → **2× nearest-neighbor** → 368×448 centred at (56, 16) in 480×480 (56 px L/R / 16 px T/B black border) |
 
 Internal canvas is **184×224** on all four. The 1.75C rounds the content
@@ -93,7 +93,7 @@ LittleFS auto-formats on first boot if the partition isn't recognised.
 `main.cpp` and `buddies/` stay untouched.
 
 Once running you can also wipe everything from the device itself:
-**hold the A button (Key1 on 1.8/1.75C, PWR on the 2.16 boards) →
+**hold the menu button (Key1 on 1.8/1.75C, +/KEY on the 2.16 boards) →
 settings → reset → factory reset → tap twice**.
 
 ## Pairing
@@ -119,46 +119,60 @@ long-press toggles screen off, very-long-press hardware-shuts-down.
 |                          | Normal               | Pet         | Info        | Approval    |
 | ------------------------ | -------------------- | ----------- | ----------- | ----------- |
 | **Key1** (BOOT)          | next screen          | next screen | next screen | **approve** |
-| **Key3** (PWR, short)    | scroll transcript    | next page   | next page   | **deny**    |
+| **Key3** (PWR, short)    | scroll transcript    | —           | next page   | **deny**    |
 | **Hold Key1**            | menu                 | menu        | menu        | menu        |
 | **Key3** (PWR, ~1s long) | toggle screen off    |             |             |             |
 | **Key3** (PWR, ~6s)      | hard power off       |             |             |             |
 | **Shake**                | dizzy                |             |             | —           |
 | **Face-down**            | nap (energy refills) |             |             |             |
 
-### ESP32-C6-Touch-AMOLED-2.16 controls
+The Pet screen is a single page on every board — the old page 2/2 explainer
+moved to the Info pages (see [Screens](#screens)).
 
-The board has three physical keys:
-- **PWR** (middle) — primary action / confirm (= A button)
-- **IO10** (left) — secondary / back / scroll (= B button)
-- **BOOT** (right) — open menu shortcut
+### 2.16" boards (ESP32-S3 and ESP32-C6)
 
-|                          | Normal               | Pet         | Info        | Approval    |
-| ------------------------ | -------------------- | ----------- | ----------- | ----------- |
-| **PWR** (middle)         | next screen          | next screen | next screen | **approve** |
-| **IO10** (left, short)   | scroll transcript    | next page   | next page   | **deny**    |
-| **Hold PWR**             | menu                 | menu        | menu        | menu        |
-| **BOOT** (right)         | open menu (shortcut) | open menu   | open menu   | open menu   |
-| **PWR held 4 s**         | power off (AXP cuts ALDO3; press again to wake) |             |             |             |
-| **Shake**                | dizzy                |             |             | —           |
-| **Face-down**            | nap (energy refills) |             |             |             |
+Three physical keys, silkscreened **PWR** (middle), **+/KEY** (left) and
+**BOOT/-** (right). Each has a distinct tap and hold action, and tap meaning
+changes while a menu is open.
 
-### ESP32-S3-Touch-AMOLED-2.16 controls
+|                      | Buddy / Stats / Info      | Menu, settings, reset   | Approval prompt |
+| -------------------- | ------------------------- | ----------------------- | --------------- |
+| **PWR** tap          | screen on/off             | cursor **up**           | screen on/off   |
+| **PWR** hold 1.2 s   | **power off**             | **power off**           | **power off**   |
+| **+/KEY** tap        | show/hide stats page      | cursor **down**         | **approve**     |
+| **+/KEY** hold 0.6 s | open menu                 | back one level          | open menu       |
+| **BOOT/-** tap       | next info page            | **select** current item | **deny**        |
+| **BOOT/-** hold 0.6 s| mute / unmute             | mute / unmute           | mute / unmute   |
+| **Shake**            | dizzy                     |                         | —               |
+| **Face-down**        | nap (energy refills)      |                         |                 |
 
-The board has three physical keys:
-- **PWR** (middle) — primary action / confirm (= A button)
-- **IO18** (left) — secondary / back / scroll (= B button)
-- **BOOT** (right) — open menu shortcut
+- **PWR** never navigates outside a menu — it is screen power only, so a
+  stray press can't lose your place. Holding it powers down from any screen.
+  The AXP2101 also cuts power in hardware at a 4 s hold, independent of
+  firmware, so that remains a last resort if the firmware is wedged.
+- **+/KEY** toggles: press it again on the stats page to return to the buddy.
+- **BOOT/-** enters the info pages at whichever page you last viewed, then
+  advances one per tap, wrapping after the 7th.
+- A press that wakes a slept screen only wakes it — the action is swallowed
+  so you don't change screens by reaching for the device in the dark.
+- Pins differ per variant: PWR is GPIO16 (S3) / GPIO18 (C6), +/KEY is GPIO18
+  (S3) / GPIO10 (C6), BOOT/- is GPIO0 (S3) / GPIO9 (C6). PWR is active-HIGH
+  on both, via a MOSFET inverter tied to the AXP PWRON gate.
 
-|                          | Normal               | Pet         | Info        | Approval    |
-| ------------------------ | -------------------- | ----------- | ----------- | ----------- |
-| **PWR** (middle)         | next screen          | next screen | next screen | **approve** |
-| **IO18** (left, short)   | scroll transcript    | next page   | next page   | **deny**    |
-| **Hold PWR**             | menu                 | menu        | menu        | menu        |
-| **BOOT** (right)         | open menu (shortcut) | open menu   | open menu   | open menu   |
-| **PWR held 4 s**         | power off (AXP cuts ALDO3; press again to wake) |             |             |             |
-| **Shake**                | dizzy                |             |             | —           |
-| **Face-down**            | nap (energy refills) |             |             |             |
+### Screens
+
+Three display modes, each reached directly rather than by cycling:
+
+| Mode | Contents | Reached by |
+| --- | --- | --- |
+| **Buddy** | animated character + transcript HUD, or the clock face when Claude is idle and the RTC is synced | default; **+/KEY** again from Stats |
+| **Stats** | one page — mood, fed, energy, level, approvals/denials, nap time, tokens | **+/KEY** tap |
+| **Info** | 7 pages — ABOUT · BUTTONS · CLAUDE · DEVICE · BLUETOOTH · STATS · CREDITS | **BOOT/-** tap |
+
+Info's **STATS** page explains what mood / fed / energy *mean*; the Stats
+screen shows their current values. Session dots draw on top of every screen,
+and replace the screen entirely while the buddy is asleep, napping, or
+battery-dimmed (see [Debugging](#debugging) — that state logs as `dots=1`).
 
 ### Touch (all boards)
 
@@ -178,13 +192,20 @@ it needs no coordinate remap when the **rotation** setting changes (see
   brightness the moment a session needs attention, finishes, or celebrates
 - **Approval prompt up** — never auto-offs
 
-Any key press or screen tap wakes the panel.
+Any key press or screen tap wakes the panel. On the 2.16 boards **PWR** also
+toggles the screen deliberately, on or off, from any screen. A wake triggered
+by a button skips the usual 12-second wake-up transition, so the UI appears
+immediately rather than holding the sleeping-buddy state.
 
 ## Settings menu
 
-Hold the A button (Key1 on 1.8/1.75C, PWR on the 2.16 boards) to open
-**menu → settings**. Short-press A steps through items, B changes the
-selected one.
+Hold the menu button (Key1 on 1.8/1.75C, **+/KEY** on the 2.16 boards) to
+open **menu → settings**.
+
+On the 2.16 boards **PWR** moves the cursor up, **+/KEY** moves it down and
+**BOOT/-** activates the highlighted item; holding **+/KEY** steps back one
+level. On the two-key boards short-press A steps through items and B changes
+the selected one.
 
 | Item | Values | Notes |
 | --- | --- | --- |
@@ -220,6 +241,74 @@ clipping each other.
 
 "Session finished" fires whenever the running-session count *decreases*,
 even with other sessions still active — not only when the last one ends.
+
+## Debugging
+
+Two optional Serial tracers live in the `[env]` `build_flags` block of
+`platformio.ini`. Both are commented out by default. Uncomment the one you
+want, reflash, then watch the output:
+
+```bash
+pio run -e waveshare-esp32s3-touch-amoled-2-16 -t upload && pio device monitor
+```
+
+Enable **one at a time** — `BRIDGE_DEBUG`'s heartbeat traffic will bury the
+button trace.
+
+### `-DBRIDGE_DEBUG` — wire protocol
+
+Echoes every inbound JSON frame (BLE or USB) as it arrives, so you can see
+what the desktop app is actually sending and confirm the device parses it.
+Chatty: a heartbeat lands roughly every second even when nothing happens.
+
+Use it for: pairing problems, session counts that look wrong, approval
+prompts that never appear.
+
+### `-DBTN_DEBUG` — buttons and render state
+
+Emits two line types, each stamped with `millis()` so they interleave in
+causal order:
+
+```
+[   83837] BTN KEY  down
+[   83955] BTN KEY  tap held=115 -> mode PET
+[   84055] ST  active=idle base=idle dots=0 off=0 dim=0 bdim=0 nap=0 mode=PET pg=0 clk=0 prompt=0 menu=0 set=0 rst=0
+```
+
+**`BTN` lines** fire on every button edge and name the action dispatched.
+`held=` is the press duration in ms. Two things worth knowing:
+
+- `-> swallowed (long=0 wake=1)` means the press only woke the screen and was
+  deliberately not acted on. `wake=1` is the wake-swallow, `long=1` means a
+  hold already fired for that press.
+- `held=` is unreliable while the screen is off — the loop drops to a 200 ms
+  cadence there, so edges are sampled coarsely. Classification is still
+  correct; only the number is rough.
+
+**`ST` lines** print the render and persona state, and **only when something
+changes** — an idle device stays silent, so every line marks a real
+transition:
+
+| Field | Meaning |
+| --- | --- |
+| `active` / `base` | current and derived persona state (`sleep`, `idle`, `busy`, `attention`, `celebrate`, `dizzy`, `heart`) |
+| `dots` | dots-only render: screen deliberately blanked to just the session dots |
+| `off` | panel genuinely powered down via `hwDisplaySleep()` |
+| `dim` / `bdim` | brightness-0 nap dim / battery busy-dim |
+| `nap` | face-down nap active |
+| `mode` / `pg` | display mode (`NORM` / `PET` / `INFO`) and info page index |
+| `clk` | clock face has taken over the home screen |
+| `prompt` | an approval prompt is pending |
+| `menu` / `set` / `rst` | menu / settings / reset overlay open |
+
+The pairing to watch is **`dots=1 off=0`**. That means the panel is powered
+and being painted blank-plus-dots — visually identical to a dead screen, but
+it indicates the buddy is asleep, *not* that a button turned the display off.
+A real button-initiated power-down reads `off=1`. Distinguishing those two
+is the whole reason this tracer exists.
+
+Use it for: a button doing the wrong thing, a screen that looks off when it
+shouldn't be, or correlating device behaviour against a Claude session.
 
 ## Notable differences from the M5StickC original
 
@@ -308,6 +397,7 @@ src/
   data.h             — wire protocol, JSON parse, CJK matrixifier
   xfer.h             — folder push receiver
   stats.h            — NVS-backed stats, settings, owner, species choice
+  session_dots.h     — top-right per-session dots + dots-only sleep display
   boards/            — one .h per supported board (pins + capability flags)
   hw/                — board HAL (display, input, power, imu, rtc,
                        audio, expander, border). pins.h dispatches on
