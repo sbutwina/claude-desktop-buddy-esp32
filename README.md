@@ -7,58 +7,48 @@ maker devices over BLE, so developers and makers can build hardware that
 displays permission prompts, recent messages, and other interactions.
 
 This is a port of [anthropics/claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy)
-(originally targeting M5StickC Plus) to four Waveshare ESP32 AMOLED
-boards. The BLE wire protocol is unchanged — same pairing, same desktop
-apps, just a larger screen.
+(originally targeting M5StickC Plus) to the Waveshare
+ESP32-S3-Touch-AMOLED-2.16. The BLE wire protocol is unchanged — same
+pairing, same desktop apps, just a larger screen.
 
 > **Building your own device?** You don't need any of the code here. See
 > **[REFERENCE.md](REFERENCE.md)** for the wire protocol: Nordic UART
 > Service UUIDs, JSON schemas, and the folder push transport.
 
-## Supported boards
+## Hardware
 
-All four run the **same main.cpp / UI** — board-specific wiring, drivers and
-canvas→panel scaling are isolated in `src/hw/` + one header per board
-under `src/boards/`.
+[**Waveshare ESP32-S3-Touch-AMOLED-2.16**](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-2.16)
+— board-specific wiring, drivers and canvas→panel scaling are isolated in
+`src/hw/` + `src/boards/board_waveshare_esp32s3_touch_amoled_2_16.h`.
 
-| | [ESP32-S3-Touch-AMOLED-1.8](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.8) | [ESP32-S3-Touch-AMOLED-1.75C](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75C) | [ESP32-C6-Touch-AMOLED-2.16](https://docs.waveshare.com/ESP32-C6-Touch-AMOLED-2.16) | [ESP32-S3-Touch-AMOLED-2.16](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-2.16) |
-| --- | --- | --- | --- | --- |
-| MCU | ESP32-S3R8 (8 MB OPI PSRAM, 8 MB flash) | same | ESP32-C6FH8 (160 MHz RISC-V single-core, 8 MB flash, **no PSRAM**) | ESP32-S3R8 (8 MB OPI PSRAM, 8 MB flash) |
-| Panel | 1.8" **rectangular** 368×448 AMOLED | 1.75" **round** 466×466 AMOLED | 2.16" **rounded-square** 480×480 AMOLED | 2.16" **rounded-square** 480×480 AMOLED (**rotated 90°**) |
-| Display driver | SH8601 (QSPI) | CO5300 (QSPI) | SH8601 (QSPI) | CO5300 (QSPI) |
-| Touch | FT3168 @ 0x38 | CST92xx @ 0x5A | CST9217 @ 0x5A | CST9217 @ 0x5A |
-| GPIO expander | TCA9554 (LCD/TP resets routed through it) | none — resets are direct GPIOs | none — resets are direct GPIOs | none — resets are direct GPIOs |
-| RTC | PCF85063 (I²C) | none — software clock synced from desktop | PCF85063 (I²C) | PCF85063 (I²C) |
-| IMU | QMI8658 | same | same | same |
-| PMU | AXP2101 | same | same | same |
-| Audio | ES8311 + amp + speaker | same | ES8311 + ES7210 (output + mic codec) | same |
-| Buttons | Key1 (GPIO0 BOOT) + AXP PEK | same (physical layout swapped; corrected in firmware) | three: PWR / +/KEY / BOOT-; PWR is active-HIGH via MOSFET inverter + AXP PWRON | three: PWR / +/KEY / BOOT-; PWR is active-HIGH via BSS138 inverter |
-| Canvas → panel | 184×224 canvas → **2× nearest-neighbor** → 368×448 | 184×224 canvas → **1.5× bilinear** → 276×336 centred in 466×466 (black border) | 184×224 canvas → **2× nearest-neighbor** → 368×448 centred at (56, 16) in 480×480 (56 px L/R / 16 px T/B black border) | 184×224 canvas → **2× nearest-neighbor** → 368×448 centred at (56, 16) in 480×480 (56 px L/R / 16 px T/B black border) |
+| | |
+| --- | --- |
+| MCU | ESP32-S3R8 (8 MB OPI PSRAM, 8 MB flash) |
+| Panel | 2.16" **rounded-square** 480×480 AMOLED (**rotated 180°**) |
+| Display driver | CO5300 (QSPI) |
+| Touch | CST9217 @ 0x5A |
+| GPIO expander | none — LCD/TP resets are direct GPIOs |
+| RTC | PCF85063 (I²C) |
+| IMU | QMI8658 |
+| PMU | AXP2101 |
+| Audio | ES8311 + amp + speaker |
+| Buttons | three: PWR / +/KEY / BOOT-; PWR is active-HIGH via BSS138 inverter |
+| Canvas → panel | 184×224 canvas → **2× bilinear** → 368×448 centred at (56, 16) in 480×480 (56 px L/R / 16 px T/B black border) |
 
-Internal canvas is **184×224** on all four. The 1.75C rounds the content
-inside its circular bezel; keeping the logical canvas identical means
-UI code, fonts and all buddy rendering are completely board-agnostic.
+Internal canvas is **184×224**. Rounded corners fall inside the 56 px
+left/right black border, so canvas content is always in the visible
+rectangle and UI code needs no panel-shape awareness.
 
-The firmware targets ESP32-S3 and ESP32-C6 with Arduino framework 3.x via the
+The firmware targets ESP32-S3 with Arduino framework 3.x via the
 [pioarduino](https://github.com/pioarduino/platform-espressif32) platform.
 
 ## Flashing
 
 Install
 [PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/),
-then pick the env that matches your board:
+then build and flash:
 
 ```bash
-# 1.8" rectangular AMOLED (ESP32-S3)
-pio run -e waveshare-esp32s3-touch-amoled-1-8 -t upload
-
-# 1.75C round AMOLED (ESP32-S3)
-pio run -e waveshare-esp32s3-touch-amoled-1-75c -t upload
-
-# 2.16" rounded-square AMOLED (ESP32-C6)
-pio run -e waveshare-esp32c6-touch-amoled-2-16 -t upload
-
-# 2.16" rounded-square AMOLED (ESP32-S3)
 pio run -e waveshare-esp32s3-touch-amoled-2-16 -t upload
 ```
 
@@ -73,28 +63,24 @@ LittleFS auto-formats on first boot if the partition isn't recognised.
 
 ### Adding another board
 
-1. Add a new header at `src/boards/board_<name>.h` declaring all
-   `PIN_*`, `BOARD_HW_W/H`, `BOARD_SAFE_INSET`, and capability flags —
-   the existing headers cover ~16 flags between them
-   (`BOARD_HAS_PSRAM`, `BOARD_HAS_TCA9554`, `BOARD_HAS_PCF85063`,
-   `BOARD_HAS_AXP2101`, `BOARD_HAS_PA_CTRL`, `BOARD_HAS_KEY2`,
-   `BOARD_DISPLAY_CO5300`, `BOARD_DISPLAY_LETTERBOX`,
-   `BOARD_DISPLAY_OFFSET_X/Y`, `BOARD_DISPLAY_SCALE`,
-   `BOARD_DISPLAY_PUSH_STREAMED`, `BOARD_DISPLAY_SH8601_VENDOR_INIT`,
-   `BOARD_CO5300_COL_OFFSET`, `BOARD_CO5300_MADCTL`,
-   `BOARD_LCD_RST_VIA_PMU`, `BOARD_AXP_PWRON_4S_OFF`,
-   `BOARD_AXP_ENABLE_AUX_LDOS`, `BOARD_KEY1_ACTIVE_HIGH`,
-   `BOARD_BTN_THIRD`, `BOARD_BTN_SWAP_AB`, `BOARD_TOUCH_CST92XX`).
-   Pick the values that match your board.
-2. Add a `#elif defined(BOARD_<NAME>)` branch in `src/hw/pins.h`.
+This repo targets one board on purpose — the capability-flag branches that
+used to switch between panels, touch controllers and reset schemes were
+removed once they had a single value. To bring another board back:
+
+1. Add a header at `src/boards/board_<name>.h` declaring the `PIN_*`,
+   `BOARD_HW_W/H`, `BOARD_SAFE_INSET` and panel-geometry values, plus
+   whatever capability flag the difference needs.
+2. Restore the `#if defined(BOARD_<NAME>)` dispatch in `src/hw/pins.h`.
 3. Add a matching `[env:<name>]` block in `platformio.ini` with the
    `-DBOARD_<NAME>` build flag.
+4. Re-introduce the alternate branch in the `src/hw/` file that cares.
+   `git log -- src/hw` has the deleted SH8601, FT3168/DriveBus, TCA9554
+   and software-clock paths if you need them back.
 
 `main.cpp` and `buddies/` stay untouched.
 
 Once running you can also wipe everything from the device itself:
-**hold the menu button (Key1 on 1.8/1.75C, +/KEY on the 2.16 boards) →
-settings → reset → factory reset → tap twice**.
+**hold +/KEY → settings → reset → factory reset → tap twice**.
 
 ## Pairing
 
@@ -109,27 +95,6 @@ complete LE Secure Connections bonding. Once paired, the bridge
 auto-reconnects whenever both sides are awake.
 
 ## Controls
-
-### ESP32-S3 boards (1.8 & 1.75C)
-
-The board has two physical keys. **Key1** is the BOOT button (acts as
-"A" in the table). **Key3** is the AXP power key — short-press is "B",
-long-press toggles screen off, very-long-press hardware-shuts-down.
-
-|                          | Normal               | Pet         | Info        | Approval    |
-| ------------------------ | -------------------- | ----------- | ----------- | ----------- |
-| **Key1** (BOOT)          | next screen          | next screen | next screen | **approve** |
-| **Key3** (PWR, short)    | scroll transcript    | —           | next page   | **deny**    |
-| **Hold Key1**            | menu                 | menu        | menu        | menu        |
-| **Key3** (PWR, ~1s long) | toggle screen off    |             |             |             |
-| **Key3** (PWR, ~6s)      | hard power off       |             |             |             |
-| **Shake**                | dizzy                |             |             | —           |
-| **Face-down**            | nap (energy refills) |             |             |             |
-
-The Pet screen is a single page on every board — the old page 2/2 explainer
-moved to the Info pages (see [Screens](#screens)).
-
-### 2.16" boards (ESP32-S3 and ESP32-C6)
 
 Three physical keys, silkscreened **PWR** (middle), **+/KEY** (left) and
 **BOOT/-** (right). Each has a distinct tap and hold action, and tap meaning
@@ -155,9 +120,8 @@ changes while a menu is open.
   advances one per tap, wrapping after the 7th.
 - A press that wakes a slept screen only wakes it — the action is swallowed
   so you don't change screens by reaching for the device in the dark.
-- Pins differ per variant: PWR is GPIO16 (S3) / GPIO18 (C6), +/KEY is GPIO18
-  (S3) / GPIO10 (C6), BOOT/- is GPIO0 (S3) / GPIO9 (C6). PWR is active-HIGH
-  on both, via a MOSFET inverter tied to the AXP PWRON gate.
+- Pins: PWR is GPIO16, +/KEY is GPIO18, BOOT/- is GPIO0. PWR is active-HIGH
+  via a BSS138 inverter tied to the AXP PWRON gate.
 
 ### Screens
 
@@ -174,7 +138,7 @@ screen shows their current values. Session dots draw on top of every screen,
 and replace the screen entirely while the buddy is asleep, napping, or
 battery-dimmed (see [Debugging](#debugging) — that state logs as `dots=1`).
 
-### Touch (all boards)
+### Touch
 
 Touch does exactly one thing: a short stationary tap (not a swipe) → heart
 reaction. Buttons are the only path for approve/deny, menu navigation, page
@@ -199,13 +163,9 @@ immediately rather than holding the sleeping-buddy state.
 
 ## Settings menu
 
-Hold the menu button (Key1 on 1.8/1.75C, **+/KEY** on the 2.16 boards) to
-open **menu → settings**.
-
-On the 2.16 boards **PWR** moves the cursor up, **+/KEY** moves it down and
-**BOOT/-** activates the highlighted item; holding **+/KEY** steps back one
-level. On the two-key boards short-press A steps through items and B changes
-the selected one.
+Hold **+/KEY** to open **menu → settings**. **PWR** moves the cursor up,
+**+/KEY** moves it down and **BOOT/-** activates the highlighted item;
+holding **+/KEY** steps back one level.
 
 | Item | Values | Notes |
 | --- | --- | --- |
@@ -219,7 +179,7 @@ the selected one.
 | clock rot | auto/portrait/landscape | on-screen clock face orientation (unrelated to panel `rotation`, below) |
 | ascii pet | cycles species | includes GIF mode if a character pack is installed |
 | uptime | on/off | shows/hides the session + last-session rows on the DEVICE info page |
-| rotation | 0/90/180/270 | physical panel rotation, applied live via MADCTL — **CO5300 boards only** (1.75C, S3 2.16"); no-op on the SH8601-based 1.8" and C6 2.16" |
+| rotation | 0/90/180/270 | physical panel rotation, applied live via MADCTL |
 | reset | — | opens the reset submenu (delete char / factory reset) |
 | back | — | closes settings |
 
@@ -398,22 +358,19 @@ src/
   xfer.h             — folder push receiver
   stats.h            — NVS-backed stats, settings, owner, species choice
   session_dots.h     — top-right per-session dots + dots-only sleep display
-  boards/            — one .h per supported board (pins + capability flags)
+  boards/            — board .h (pins + panel geometry)
   hw/                — board HAL (display, input, power, imu, rtc,
-                       audio, expander, border). pins.h dispatches on
-                       the BOARD_* build flag
+                       audio, expander, border). pins.h pulls in the
+                       board header
 lib/
   ES8311/            — vendored Espressif codec driver
-  Arduino_DriveBus/  — vendored FT3168 touch driver (1.8)
-  Adafruit_XCA9554/  — vendored TCA9554 expander driver (1.8)
 characters/          — example GIF character packs
 tools/               — generators and converters
 docs/superpowers/    — design specs + implementation plans
 ```
 
-CST92xx touch (1.75C, both 2.16 boards) and PCF85063 RTC (1.8, both
-2.16 boards) come in through `SensorLib` via `platformio.ini` lib_deps
-rather than being vendored.
+CST92xx touch and PCF85063 RTC come in through `SensorLib` via
+`platformio.ini` lib_deps rather than being vendored.
 
 ## Availability
 

@@ -63,7 +63,6 @@ unsigned long t = 0;
 bool    menuOpen    = false;
 uint8_t menuSel     = 0;
 uint8_t brightLevel = 4;           // 0..4 → ScreenBreath 20..100
-bool    btnALong    = false;
 
 enum DisplayMode { DISP_NORMAL, DISP_PET, DISP_INFO, DISP_COUNT };
 uint8_t displayMode = DISP_NORMAL;
@@ -79,7 +78,6 @@ bool     screenOff = false;
 // separate from `napping` — that one feeds statsOnNapEnd()/energy-recharge
 // in stats.h, and this isn't a real face-down nap.
 bool     busyDimmed = false;
-bool     swallowBtnA = false;
 bool     swallowBtnB = false;
 bool     swallowBtnBoot = false;
 bool     buddyMode = false;
@@ -570,7 +568,6 @@ void drawInfo() {
 
   } else if (infoPage == 1) {
     _infoHeader(p, y, "BUTTONS", infoPage);
-#if BOARD_BTN_THIRD
     spr.setTextColor(p.text, p.bg);    ln("PWR");
     spr.setTextColor(p.textDim, p.bg); ln("    screen on/off");
     ln("    hold: power off"); y += 4;
@@ -585,19 +582,6 @@ void drawInfo() {
     ln("    BOOT selects"); y += 4;
     spr.setTextColor(p.text, p.bg);    ln("on prompt");
     spr.setTextColor(p.textDim, p.bg); ln("    KEY yes, BOOT no");
-#else
-    spr.setTextColor(p.text, p.bg);    ln("A   front");
-    spr.setTextColor(p.textDim, p.bg); ln("    next screen");
-    ln("    approve prompt"); y += 4;
-    spr.setTextColor(p.text, p.bg);    ln("B   right side");
-    spr.setTextColor(p.textDim, p.bg); ln("    next page");
-    ln("    deny prompt"); y += 4;
-    spr.setTextColor(p.text, p.bg);    ln("hold A");
-    spr.setTextColor(p.textDim, p.bg); ln("    menu"); y += 4;
-    spr.setTextColor(p.text, p.bg);    ln("Power  left side");
-    spr.setTextColor(p.textDim, p.bg); ln("    tap = screen off");
-    ln("    hold 6s = off");
-#endif
 
   } else if (infoPage == 2) {
     _infoHeader(p, y, "CLAUDE", infoPage);
@@ -1110,8 +1094,7 @@ void loop() {
 
   bool inPrompt = tama.promptId[0] && !responseSent;
 
-#if BOARD_BTN_THIRD
-  // ── Three-key boards (2.16): PWR / +/KEY / BOOT- ──────────────────────
+  // ── Buttons: PWR / +/KEY / BOOT- ──────────────────────────────────────
   //   PWR   tap  = screen on/off, or cursor-up while a list is open
   //         hold = power off (everywhere)
   //   +/KEY tap  = approve / cursor-down / toggle buddy stats
@@ -1274,106 +1257,6 @@ void loop() {
     bootLong = false;
     swallowBtnBoot = false;
   }
-#else
-  // ── Two-key boards (1.8 / 1.75C): BtnA (Key1) + BtnB (AXP short-press) ─
-  // Button-press wake. Track which button woke the screen so its full
-  // press cycle (including long-press) is swallowed — you don't want
-  // BtnA-to-wake to also cycle displayMode or open the menu.
-  if (hwBtnA().isPressed || hwBtnB().isPressed) {
-    if (screenOff) {
-      if (hwBtnA().isPressed) swallowBtnA = true;
-      if (hwBtnB().isPressed) swallowBtnB = true;
-    }
-    wake();
-  }
-
-  // Key3 long-press (~1s, AXP IRQ 0x04) toggles screen off — replaces
-  // M5StickC's PWR short-press behaviour (we only have 2 buttons; short
-  // press of Key3 is BtnB, so screen-toggle moves to long-press).
-  // Very-long-press (6s) still powers off via AXP hardware.
-  if (hwAxpBtnEvent() == 0x04) {
-    if (screenOff) {
-      wake();
-    } else {
-      hwDisplaySleep(true);
-      screenOff = true;
-    }
-  }
-
-  if (hwBtnA().pressedFor(600) && !btnALong && !swallowBtnA) {
-    btnALong = true;
-    beep(800, 60);
-    if (resetOpen) { resetOpen = false; }
-    else if (settingsOpen) { settingsOpen = false; characterInvalidate(); }
-    else {
-      menuOpen = !menuOpen;
-      menuSel = 0;
-      if (!menuOpen) characterInvalidate();
-    }
-    Serial.println(menuOpen ? "menu open" : "menu close");
-  }
-  if (hwBtnA().wasReleased) {
-    if (!btnALong && !swallowBtnA) {
-      if (inPrompt) {
-        char cmd[96];
-        snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permission\",\"id\":\"%s\",\"decision\":\"once\"}", tama.promptId);
-        sendCmd(cmd);
-        responseSent = true;
-        uint32_t tookS = (millis() - promptArrivedMs) / 1000;
-        statsOnApproval(tookS);
-        beep(2400, 60);
-        if (tookS < 5) triggerOneShot(P_HEART, 2000);
-      } else if (resetOpen) {
-        beep(1800, 30);
-        resetSel = (resetSel + 1) % RESET_N;
-        resetConfirmIdx = 0xFF;
-      } else if (settingsOpen) {
-        beep(1800, 30);
-        settingsSel = (settingsSel + 1) % SETTINGS_N;
-      } else if (menuOpen) {
-        beep(1800, 30);
-        menuSel = (menuSel + 1) % MENU_N;
-      } else {
-        beep(1800, 30);
-        displayMode = (displayMode + 1) % DISP_COUNT;
-        applyDisplayMode();
-      }
-    }
-    btnALong = false;
-    swallowBtnA = false;
-  }
-
-  // BtnB: pet → heart
-  if (hwBtnB().wasPressed) {
-    if (swallowBtnB) { swallowBtnB = false; }
-    else
-    if (inPrompt) {
-      char cmd[96];
-      snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permission\",\"id\":\"%s\",\"decision\":\"deny\"}", tama.promptId);
-      sendCmd(cmd);
-      responseSent = true;
-      statsOnDenial();
-      beep(600, 60);
-    } else if (resetOpen) {
-      beep(2400, 30);
-      applyReset(resetSel);
-    } else if (settingsOpen) {
-      beep(2400, 30);
-      applySetting(settingsSel);
-    } else if (menuOpen) {
-      beep(2400, 30);
-      menuConfirm();
-    } else if (displayMode == DISP_INFO) {
-      beep(2400, 30);
-      infoPage = (infoPage + 1) % INFO_PAGES;
-    } else if (displayMode == DISP_PET) {
-      beep(2400, 30);   // single stats page now — nothing left to cycle
-    } else {
-      beep(2400, 30);
-      msgScroll = (msgScroll >= 30) ? 0 : msgScroll + 1;
-    }
-  }
-#endif
 
   // ─── Touch (additive — buttons above already handled everything else) ──
   // Touch does exactly one thing: any stationary tap → heart reaction.
@@ -1594,9 +1477,7 @@ void loop() {
   } else if (napping
           || hwTouch().down
           || hwBtnA().isPressed || hwBtnB().isPressed
-#if BOARD_BTN_THIRD
           || hwBtnBoot().isPressed
-#endif
           || inPrompt || menuOpen || settingsOpen || resetOpen
           || (int32_t)(now - oneShotUntil) < 0
           || xferActive()
