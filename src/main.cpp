@@ -206,6 +206,10 @@ const uint8_t INFO_PG_CREDITS = 6;
 const uint32_t LONG_MS     = 600;
 const uint32_t PWR_LONG_MS = 1200;
 
+// At 0 rotation PWR sits below KEY (physical layout flips), so PWR should
+// drive the cursor down and KEY up there; 180/270 keep PWR up, KEY down.
+static inline bool pwrIsCursorUp() { return settings().rotation != 0; }
+
 void applyDisplayMode() {
   bool peek = displayMode != DISP_NORMAL;
   characterSetPeek(peek);
@@ -259,7 +263,14 @@ static void applySetting(uint8_t idx) {
     case 7: s.clockRot = (s.clockRot + 1) % 3; break;
     case 8: nextPet(); return;
     case 9: s.showUptime = !s.showUptime; break;
-    case 10: s.rotation = (s.rotation + 1) % 4; hwDisplaySetRotation(s.rotation); break;
+    case 10: {
+      // 90CW dropped — it puts the buttons on the bottom edge, not practical.
+      static const uint8_t ROT_CYCLE[] = { 0, 2, 3 };
+      uint8_t i = (s.rotation == 2) ? 1 : (s.rotation == 3) ? 2 : 0;
+      s.rotation = ROT_CYCLE[(i + 1) % 3];
+      hwDisplaySetRotation(s.rotation);
+      break;
+    }
     case 11: resetOpen = true; resetSel = 0; resetConfirmIdx = 0xFF; return;
     case 12: settingsOpen = false; characterInvalidate(); return;
   }
@@ -374,8 +385,7 @@ static void drawSettings() {
       spr.setTextColor(s.showUptime ? GREEN : p.textDim, PANEL);
       spr.print(s.showUptime ? " on" : "off");
     } else if (i == 10) {
-      static const char* const ROT[] = { "0", "90", "180", "270" };
-      spr.print(ROT[s.rotation]);
+      spr.print(s.rotation == 0 ? "0" : s.rotation == 2 ? "180" : "270");
     }
   }
   drawMenuHints(p, mx, mw, my + mh - 12, "Next", "Change");
@@ -578,7 +588,8 @@ void drawInfo() {
     spr.setTextColor(p.textDim, p.bg); ln("    info pages");
     ln("    hold: mute"); y += 4;
     spr.setTextColor(p.text, p.bg);    ln("in menu");
-    spr.setTextColor(p.textDim, p.bg); ln("    PWR up, KEY down");
+    spr.setTextColor(p.textDim, p.bg);
+    ln(pwrIsCursorUp() ? "    PWR up, KEY down" : "    PWR down, KEY up");
     ln("    BOOT selects"); y += 4;
     spr.setTextColor(p.text, p.bg);    ln("on prompt");
     spr.setTextColor(p.textDim, p.bg); ln("    KEY yes, BOOT no");
@@ -1125,19 +1136,20 @@ void loop() {
   if (hwBtnA().wasReleased) {
     uint32_t held = millis() - hwBtnA().pressedAt;
     if (!pwrLong) {
+      bool up = pwrIsCursorUp();
       if (resetOpen) {
         beep(1800, 30);
-        resetSel = (resetSel + RESET_N - 1) % RESET_N;
+        resetSel = (resetSel + (up ? RESET_N - 1 : 1)) % RESET_N;
         resetConfirmIdx = 0xFF;
-        BTNLOG("PWR  tap held=%lu -> reset cursor up (%u)", (unsigned long)held, resetSel);
+        BTNLOG("PWR  tap held=%lu -> reset cursor %s (%u)", (unsigned long)held, up ? "up" : "down", resetSel);
       } else if (settingsOpen) {
         beep(1800, 30);
-        settingsSel = (settingsSel + SETTINGS_N - 1) % SETTINGS_N;
-        BTNLOG("PWR  tap held=%lu -> settings cursor up (%u)", (unsigned long)held, settingsSel);
+        settingsSel = (settingsSel + (up ? SETTINGS_N - 1 : 1)) % SETTINGS_N;
+        BTNLOG("PWR  tap held=%lu -> settings cursor %s (%u)", (unsigned long)held, up ? "up" : "down", settingsSel);
       } else if (menuOpen) {
         beep(1800, 30);
-        menuSel = (menuSel + MENU_N - 1) % MENU_N;
-        BTNLOG("PWR  tap held=%lu -> menu cursor up (%u)", (unsigned long)held, menuSel);
+        menuSel = (menuSel + (up ? MENU_N - 1 : 1)) % MENU_N;
+        BTNLOG("PWR  tap held=%lu -> menu cursor %s (%u)", (unsigned long)held, up ? "up" : "down", menuSel);
       } else if (screenOff || dimmed || busyDimmed) {
         wakeForUser();
         BTNLOG("PWR  tap held=%lu -> screen ON", (unsigned long)held);
@@ -1182,18 +1194,21 @@ void loop() {
         if (tookS < 5) triggerOneShot(P_HEART, 2000);
         BTNLOG("KEY  tap held=%lu -> APPROVE (%lus)", (unsigned long)held, (unsigned long)tookS);
       } else if (resetOpen) {
+        bool up = !pwrIsCursorUp();
         beep(1800, 30);
-        resetSel = (resetSel + 1) % RESET_N;
+        resetSel = (resetSel + (up ? RESET_N - 1 : 1)) % RESET_N;
         resetConfirmIdx = 0xFF;
-        BTNLOG("KEY  tap held=%lu -> reset cursor down (%u)", (unsigned long)held, resetSel);
+        BTNLOG("KEY  tap held=%lu -> reset cursor %s (%u)", (unsigned long)held, up ? "up" : "down", resetSel);
       } else if (settingsOpen) {
+        bool up = !pwrIsCursorUp();
         beep(1800, 30);
-        settingsSel = (settingsSel + 1) % SETTINGS_N;
-        BTNLOG("KEY  tap held=%lu -> settings cursor down (%u)", (unsigned long)held, settingsSel);
+        settingsSel = (settingsSel + (up ? SETTINGS_N - 1 : 1)) % SETTINGS_N;
+        BTNLOG("KEY  tap held=%lu -> settings cursor %s (%u)", (unsigned long)held, up ? "up" : "down", settingsSel);
       } else if (menuOpen) {
+        bool up = !pwrIsCursorUp();
         beep(1800, 30);
-        menuSel = (menuSel + 1) % MENU_N;
-        BTNLOG("KEY  tap held=%lu -> menu cursor down (%u)", (unsigned long)held, menuSel);
+        menuSel = (menuSel + (up ? MENU_N - 1 : 1)) % MENU_N;
+        BTNLOG("KEY  tap held=%lu -> menu cursor %s (%u)", (unsigned long)held, up ? "up" : "down", menuSel);
       } else {
         beep(1800, 30);
         displayMode = (displayMode == DISP_PET) ? DISP_NORMAL : DISP_PET;

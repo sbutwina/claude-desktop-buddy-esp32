@@ -193,7 +193,7 @@ struct Settings {
   bool hud;
   uint8_t clockRot;  // 0=auto 1=portrait 2=landscape
   bool showUptime;   // gates the session/last-session rows on the DEVICE info page
-  uint8_t rotation;  // 0=normal 1=90CW 2=180 3=90CCW — see hwDisplaySetRotation()
+  uint8_t rotation;  // 0=normal 2=180 3=270 — 90CW dropped, it put buttons on the bottom edge. See hwDisplaySetRotation()
   uint8_t volume;    // 0..100, codec hardware volume — see hwAudioSetVolume()
 };
 
@@ -210,6 +210,7 @@ inline void settingsLoad() {
   if (_settings.clockRot > 2) _settings.clockRot = 0;
   _settings.showUptime = _prefs.getBool("s_upt", true);
   _settings.rotation   = _prefs.getUChar("s_rot", BOARD_ROTATION_DEFAULT);
+  if (_settings.rotation == 1) _settings.rotation = 0;   // migrate stale 90CW pref
   if (_settings.rotation > 3) _settings.rotation = 0;
   _settings.volume     = _prefs.getUChar("s_vol", 60);
   if (_settings.volume > 100) _settings.volume = 100;
