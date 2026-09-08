@@ -132,6 +132,16 @@ static bool isFaceDown() {
   return az < -0.7f && fabsf(ax) < 0.4f && fabsf(ay) < 0.4f;
 }
 
+#ifdef IMU_DEBUG
+// Whichever axis has the largest magnitude is "down" on that side.
+static const char* imuOrientation(float ax, float ay, float az) {
+  float aax = fabsf(ax), aay = fabsf(ay), aaz = fabsf(az);
+  if (aaz >= aax && aaz >= aay) return az < 0 ? "face-down"   : "face-up";
+  if (aax >= aay)               return ax < 0 ? "left-down"   : "right-down";
+  return ay < 0 ? "bottom-down" : "top-down";
+}
+#endif
+
 static void applyBrightness() { hwDisplayBrightness(brightLevel); }
 
 static void wake() {
@@ -158,7 +168,7 @@ static inline void wakeForUser() {
 bool     responseSent = false;
 
 static void beep(uint16_t freq, uint16_t dur) {
-  if (settings().sound) hwBeep(freq, dur);
+  if (settings().sound && !napping) hwBeep(freq, dur);
 }
 
 // Press-start snapshot, read on justReleased to classify a stationary tap
@@ -1108,6 +1118,18 @@ void loop() {
   ;
   t++;
   uint32_t now = millis();
+
+#ifdef IMU_DEBUG
+  static uint32_t lastImuDebug = 0;
+  if (now - lastImuDebug >= 1000) {
+    lastImuDebug = now;
+    float ax, ay, az;
+    hwImuAccel(&ax, &ay, &az);
+    Serial.printf("[%8lu] IMU ax=%.2f ay=%.2f az=%.2f -> %-11s (faceDown=%d)\n",
+                  (unsigned long)now, ax, ay, az,
+                  imuOrientation(ax, ay, az), isFaceDown());
+  }
+#endif
 
   dataPoll(&tama);
   sessionDots::update(tama.sessionsRunning, tama.sessionsWaiting);
