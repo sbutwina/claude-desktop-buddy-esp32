@@ -173,7 +173,6 @@ holding **+/KEY** steps back one level.
 | volume | 0/20/40/60/80/100 | ES8311 codec hardware volume — not a digital scale, so low settings don't lose bit depth |
 | sound | on/off | mutes all chirps |
 | bluetooth | on/off | stored preference only — the BLE radio stays live either way |
-| wifi | on/off | placeholder — no Wi-Fi stack linked yet |
 | led | on/off | gates the on-screen attention pulse (these boards have no physical LED) |
 | transcript | on/off | HUD/transcript overlay |
 | clock rot | auto/portrait/landscape | on-screen clock face orientation (unrelated to panel `rotation`, below) |
