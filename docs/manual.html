@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Desktop Buddy — Field Manual</title>
+<title>Desktop Buddy — Field Manual (S3-2.16)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -101,20 +101,24 @@
     box-shadow: 2px 2px 0 var(--ink);
   }
 
-  /* ───────── device diagram ───────── */
-  .rig { position: relative; height: 400px; }
+  /* ───────── device diagram ─────────
+     Case is a ~46x46x37mm cube; screen is the front face (bezel ~1.3mm all
+     round), all three keys sit in a row on the TOP edge (not the front),
+     USB-C is centered on the bottom edge. See Waveshare's dimensional
+     drawing for the source layout. */
+  .rig { position: relative; height: 360px; }
   .stick {
     position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    width: 120px; height: 240px;
+    width: 200px; height: 200px;
     background: linear-gradient(160deg,#ff8a52 0%,var(--m5) 55%,#e8531f 100%);
-    border: 3px solid var(--ink); border-radius: 16px;
+    border: 3px solid var(--ink); border-radius: 22px;
     box-shadow: 0 10px 24px -10px #c0440088, inset 0 2px 0 #ffffff40, inset 0 -4px 0 #00000020;
     animation: bob 5s ease-in-out infinite;
   }
   @keyframes bob { 50% { transform:translate(-50%,-51.5%) rotate(.6deg) } }
   .lcd {
-    position:absolute; left:12px; right:12px; top:24px; height:150px;
-    background: var(--screen); border-radius: 6px;
+    position:absolute; inset:9px;
+    background: var(--screen); border-radius: 16px;
     border: 2px solid #000;
     box-shadow: inset 0 0 12px #000;
     display:grid; place-items:center;
@@ -123,56 +127,54 @@
   .face { font-family:"Silkscreen",monospace; color:#cfe8cf; font-size:18px; text-align:center; line-height:1.4; }
   .face .zz { color:#5e7a5e; font-size:10px; display:block; animation: zz 2.4s ease-in-out infinite; }
   @keyframes zz { 50% { transform: translate(2px,-3px); opacity:.5 } }
-  .btn-a {
-    position:absolute; left:50%; bottom:18px; transform:translateX(-50%);
-    width:56px; height:36px; border-radius:8px;
+  /* three keys in a row on the top edge — poke up out of the case */
+  .btn-top {
+    position:absolute; top:-6px; transform:translateX(-50%);
+    width:13px; height:13px; border-radius:50%;
     background: linear-gradient(#ff9a63,var(--m5) 55%,#e0511e);
     border:2px solid var(--ink);
-    box-shadow: inset 0 2px 0 #ffffff55, inset 0 -4px 0 #00000035, 0 2px 0 var(--ink);
+    box-shadow: inset 0 1px 0 #ffffff55, inset 0 -2px 0 #00000035;
   }
-  .btn-b {
-    position:absolute; right:-7px; top:62px;
-    width:9px; height:36px; border-radius:3px;
-    background:#e8531f; border:2px solid var(--ink);
-  }
-  .btn-p {
-    position:absolute; left:-7px; bottom:24px;
-    width:9px; height:26px; border-radius:3px;
-    background:#e8531f; border:2px solid var(--ink);
-  }
-  .led {
-    position:absolute; left:14px; top:8px;
-    width:8px; height:8px; border-radius:50%;
-    background:var(--led); box-shadow:0 0 9px 1px var(--led);
-    animation: blink 1.2s steps(2) infinite;
-  }
-  @keyframes blink { 50% { opacity:.15; box-shadow:none } }
+  .btn-key { left:60px; }
+  .btn-pwr  { left:100px; }
+  .btn-boot { left:140px; }
   .usb {
     position:absolute; left:50%; bottom:-7px; transform:translateX(-50%);
     width:34px; height:9px; background:#333; border:2px solid var(--ink); border-radius:0 0 4px 4px;
   }
 
-  /* callout lines */
+  /* callout lines — vertical, dropping down onto the top-edge keys */
+  .pinv {
+    position:absolute; top:14px; transform:translateX(-50%);
+    display:flex; flex-direction:column; align-items:center; gap:5px;
+    font-family:"Silkscreen",monospace; font-size:11px; text-align:center;
+    white-space:nowrap;
+  }
+  .pinv .tag {
+    background:var(--ink); color:var(--paper); padding:2px 8px 4px; border-radius:4px;
+  }
+  .pinv .tag.ok { background:var(--m5); color:var(--ink); }
+  .pinv .tag.no { background:var(--no); }
+  .pinv .tag.dim { background:var(--ink-dim); }
+  .pinv .wire { width:2px; background:var(--ink); flex:none; }
+  .pinv .dot { width:7px; height:7px; border-radius:50%; background:var(--ink); flex:none; }
+  .pinv small { font-family:"DM Mono",monospace; color:var(--ink-dim); font-size:10px; display:block; margin-top:3px; }
+
+  .p-key { left:128px; } .p-key .wire { height:20px; }
+  .p-pwr  { left:178px; } .p-pwr  .wire { height:20px; }
+  .p-boot { left:228px; } .p-boot .wire { height:20px; }
+
+  /* USB-C callout stays horizontal, off the bottom edge */
   .pin {
     position:absolute; font-family:"Silkscreen",monospace; font-size:11px;
     display:flex; align-items:center; gap:8px; white-space:nowrap;
   }
-  .pin .tag {
-    background:var(--ink); color:var(--paper); padding:2px 8px 4px; border-radius:4px;
-  }
-  .pin .tag.ok { background:var(--m5); color:var(--ink); }
-  .pin .tag.no { background:var(--no); }
-  .pin .tag.dim { background:var(--ink-dim); }
+  .pin .tag { background:var(--ink-dim); color:var(--paper); padding:2px 8px 4px; border-radius:4px; }
   .pin .wire { height:2px; background:var(--ink); flex:none; }
   .pin .dot { width:7px; height:7px; border-radius:50%; background:var(--ink); flex:none; }
   .pin small { font-family:"DM Mono",monospace; color:var(--ink-dim); font-size:10px; display:block; margin-top:4px; }
-  .pin.r { flex-direction:row-reverse; text-align:right; }
 
-  .p-a   { left:204px; top:278px; } .p-a .wire{width:54px}
-  .p-b   { left:244px; top:154px; } .p-b .wire{width:30px}
-  .p-pwr { right:246px; top:278px; } .p-pwr .wire{width:30px}
-  .p-led { right:228px; top:86px;  } .p-led .wire{width:28px}
-  .p-usb { left:194px; top:320px; } .p-usb .wire{width:62px}
+  .p-usb { left:198px; top:290px; } .p-usb .wire { width:50px; }
 
   .gestures {
     display:grid; grid-template-columns:1fr 1fr; gap:8px;
@@ -206,6 +208,11 @@
   .no { color:var(--no); font-weight:500; }
   .dim { color:var(--ink-dim); }
 
+  .audio-cues tr[data-tones] { cursor: pointer; }
+  .audio-cues tr[data-tones]:hover td { background: #ff6b3518; }
+  .audio-cues tr[data-tones]:active td { background: #ff6b3530; }
+  .audio-cues tr[data-tones] td:first-child::before { content: "▸ "; color: var(--m5); }
+
   .note {
     font-size:11.5px; font-style:italic; color:var(--ink-dim);
     padding:8px 12px; border-left:3px solid var(--m5); background:#ff6b3512;
@@ -225,6 +232,20 @@
   .mood .ico { font-family:"Silkscreen",monospace; font-size:13px; display:block; margin-bottom:3px; white-space:nowrap; overflow:hidden; }
   .mood b { font-family:"Silkscreen",monospace; font-size:9px; display:block; letter-spacing:.5px; }
   .mood span { color:var(--ink-dim); }
+
+  /* session dots */
+  .dotviz {
+    display:flex; align-items:center; gap:14px; margin-bottom:8px;
+    border:1.5px solid var(--ink); border-radius:8px; padding:12px 14px;
+    background:var(--screen); box-shadow:2px 2px 0 var(--ink);
+  }
+  .dotviz .row { display:flex; gap:7px; }
+  .dotviz .d { width:9px; height:9px; border-radius:50%; }
+  .dotviz .d.g { background:#3ddc63; box-shadow:0 0 5px 1px #3ddc6399; }
+  .dotviz .d.a { background:#ffcf4d; box-shadow:0 0 5px 1px #ffcf4d99; }
+  .dotviz .d.e { background:#5a5a5a; }
+  .dotviz .legend { font-size:11px; color:#cfcac0; line-height:1.5; }
+  .dotviz .legend b { color:#fff; font-family:"Silkscreen",monospace; font-size:9px; }
 
   /* pairing */
   .pair { display:flex; gap:8px; align-items:stretch; }
@@ -280,7 +301,7 @@
   <header>
     <div class="mast">
       <h1>DESKTOP BUDDY<br>FIELD MANUAL</h1>
-      <div class="sub">Operating the little stick · keep near desk</div>
+      <div class="sub">ESP32-S3-Touch-AMOLED-2.16 · keep near desk</div>
     </div>
     <div class="stamp">
       100%<br><b>HACKABLE</b><br>SEE&nbsp;FOOTER&nbsp;↓
@@ -300,37 +321,72 @@
               (&nbsp;-&nbsp;.&nbsp;-&nbsp;)
             </div>
           </div>
-          <div class="btn-a"></div>
-          <div class="btn-b"></div>
-          <div class="btn-p"></div>
-          <div class="led"></div>
+          <div class="btn-top btn-key"></div>
+          <div class="btn-top btn-pwr"></div>
+          <div class="btn-top btn-boot"></div>
           <div class="usb"></div>
         </div>
 
-        <div class="pin p-a"><span class="dot"></span><span class="wire"></span>
-          <div><span class="tag ok">A</span><small>front · big one</small></div>
+        <div class="pinv p-key">
+          <span class="tag ok">KEY</span>
+          <span class="wire"></span><span class="dot"></span>
         </div>
-        <div class="pin p-b"><span class="dot"></span><span class="wire"></span>
-          <div><span class="tag no">B</span><small>right side</small></div>
+        <div class="pinv p-pwr">
+          <span class="tag dim">PWR</span>
+          <span class="wire"></span><span class="dot"></span>
         </div>
-        <div class="pin r p-pwr"><span class="dot"></span><span class="wire"></span>
-          <div><span class="tag dim">PWR</span><small>left side</small></div>
-        </div>
-        <div class="pin r p-led"><span class="dot"></span><span class="wire"></span>
-          <div><span class="tag">LED</span><small>for alerts</small></div>
+        <div class="pinv p-boot">
+          <span class="tag no">BOOT</span>
+          <span class="wire"></span><span class="dot"></span>
         </div>
         <div class="pin p-usb"><span class="dot"></span><span class="wire"></span>
-          <div><span class="tag dim">USB-C</span><small>charge · clock</small></div>
+          <div><span class="tag">USB-C</span><small>charge · clock</small></div>
         </div>
       </div>
+      <p class="note" style="margin-top:6px">
+        All three keys sit in a single row on the <b>top edge</b> of the
+        case — not on the front or sides. No physical LED either; alerts
+        show as a red pill along the top of the on-screen UI instead.
+      </p>
 
       <h2>Gestures</h2>
       <div class="gestures">
         <div class="gest"><b>SHAKE IT</b>Buddy gets dizzy. Purely for your amusement.</div>
         <div class="gest"><b>FACE-DOWN</b>Naps &amp; refills energy. Flip back up to wake.</div>
         <div class="gest"><b>ON ITS SIDE</b>While charging on USB, becomes a desk clock.</div>
-        <div class="gest"><b>LEAVE IT</b>Screen sleeps after 30s idle. Any button wakes it.</div>
+        <div class="gest"><b>LEAVE IT</b>Sleeps after 30s (5 min on the clock face); on
+          battery it dims instead while a session is busy, so the last frame stays up.</div>
       </div>
+
+      <h2>Session Dots</h2>
+      <div class="dotviz">
+        <div class="row">
+          <span class="d g"></span><span class="d g"></span>
+          <span class="d a"></span><span class="d e"></span>
+        </div>
+        <div class="legend">
+          <b>GREEN</b> running &nbsp;·&nbsp; <b>AMBER</b> waiting &nbsp;·&nbsp; <b>GREY</b> just finished<br>
+          top-right corner · one dot per active Claude session
+        </div>
+      </div>
+      <p class="note">
+        A dot is a <i>position</i>, not a specific session — the wire protocol
+        only ever sends counts. A finished slot stays grey for 20s before
+        it's reused.
+      </p>
+
+      <h2>Audio Cues</h2>
+      <table class="controls audio-cues" id="audioCues">
+        <tr><th>EVENT</th><th>TONE</th></tr>
+        <tr data-tones="2400,60"><td>approve</td><td>2400&nbsp;Hz / 60&nbsp;ms</td></tr>
+        <tr data-tones="600,60"><td>deny</td><td>600&nbsp;Hz / 60&nbsp;ms</td></tr>
+        <tr data-tones="1800,30"><td>menu / nav</td><td>1800&nbsp;Hz / 30&nbsp;ms</td></tr>
+        <tr data-tones="1200,80"><td>needs attention</td><td>1200&nbsp;Hz / 80&nbsp;ms</td></tr>
+        <tr data-tones="1000,40"><td>busy started</td><td>1000&nbsp;Hz / 40&nbsp;ms</td></tr>
+        <tr data-tones="400,95,480,35"><td>session finished</td><td>400→480&nbsp;Hz sweep</td></tr>
+        <tr data-tones="2000,100"><td>celebrate</td><td>2000&nbsp;Hz / 100&nbsp;ms</td></tr>
+      </table>
+      <p class="note">Tap a row to hear it (plays through your speakers, not the device's).</p>
     </section>
 
     <!-- ─────── RIGHT: operation ─────── -->
@@ -339,36 +395,67 @@
       <table class="controls">
         <tr><th>INPUT</th><th>NORMALLY</th><th>ON A PROMPT</th></tr>
         <tr>
-          <td><span class="key a">A</span> tap</td>
-          <td>next screen <span class="dim">home → pet → info</span></td>
+          <td><span class="key a">KEY</span> tap</td>
+          <td>show/hide stats page</td>
           <td><span class="ok">✔ APPROVE</span></td>
         </tr>
         <tr>
-          <td><span class="key">B</span> tap</td>
-          <td>next page / scroll transcript</td>
+          <td><span class="key">BOOT</span> tap</td>
+          <td>next info page</td>
           <td><span class="no">✘ DENY</span></td>
         </tr>
         <tr>
-          <td><span class="key a">A</span> hold</td>
-          <td colspan="2">open menu <span class="dim">· settings · power off · help · demo</span></td>
-        </tr>
-        <tr>
           <td><span class="key">PWR</span> tap</td>
-          <td colspan="2">screen on / off</td>
+          <td colspan="2">screen on/off <span class="dim">— never navigates, any screen</span></td>
         </tr>
         <tr>
-          <td><span class="key">PWR</span> hold&nbsp;6s</td>
-          <td colspan="2">hard power off <span class="dim">· tap PWR again to boot</span></td>
+          <td><span class="key a">KEY</span> hold&nbsp;0.6s</td>
+          <td colspan="2">open menu <span class="dim">(hold again in a menu to go back)</span></td>
+        </tr>
+        <tr>
+          <td><span class="key">BOOT</span> hold&nbsp;0.6s</td>
+          <td colspan="2">mute / unmute</td>
+        </tr>
+        <tr>
+          <td><span class="key">PWR</span> hold&nbsp;1.2s</td>
+          <td colspan="2">power off <span class="dim">(from anywhere, including a prompt)</span></td>
         </tr>
         <tr>
           <td class="dim">in a menu</td>
-          <td colspan="2"><span class="key a">A</span> moves down&nbsp;&nbsp;·&nbsp;&nbsp;<span class="key">B</span> selects</td>
+          <td colspan="2"><span class="key">PWR</span> cursor up&nbsp;&nbsp;·&nbsp;&nbsp;<span class="key a">KEY</span> cursor down&nbsp;&nbsp;·&nbsp;&nbsp;<span class="key">BOOT</span> select</td>
+        </tr>
+        <tr>
+          <td class="dim">touch</td>
+          <td colspan="2">short tap anywhere → heart reaction <span class="dim">(that's all it does — no swipes)</span></td>
         </tr>
       </table>
 
       <p class="note">
-        Approve within <b>5&nbsp;seconds</b> and your buddy throws hearts at you.
-        Every <b>50K&nbsp;tokens</b> it levels up with confetti.
+        <b>PWR</b> is power only — it never changes what's on screen, so
+        reaching for it in the dark can't lose your place. Approve within
+        <b>5&nbsp;seconds</b> and your buddy throws hearts at you; every
+        <b>50K&nbsp;tokens</b> it levels up with confetti.
+      </p>
+
+      <h2>Settings Menu</h2>
+      <table class="controls">
+        <tr><th>ITEM</th><th>VALUES</th><th>NOTES</th></tr>
+        <tr><td>brightness</td><td>0–4</td><td class="dim">screen brightness level</td></tr>
+        <tr><td>volume</td><td>0/20/40/60/80/100</td><td class="dim">hardware codec volume</td></tr>
+        <tr><td>sound</td><td>on/off</td><td class="dim">mutes all chirps</td></tr>
+        <tr><td>bluetooth</td><td>on/off</td><td class="dim">stored pref · radio stays live</td></tr>
+        <tr><td>led</td><td>on/off</td><td class="dim">on-screen attention pulse</td></tr>
+        <tr><td>transcript</td><td>on/off</td><td class="dim">HUD overlay</td></tr>
+        <tr><td>clock rot</td><td>auto/portrait/landscape</td><td class="dim">clock face orientation</td></tr>
+        <tr><td>ascii pet</td><td>cycles species</td><td class="dim">includes GIF mode if installed</td></tr>
+        <tr><td>uptime</td><td>on/off</td><td class="dim">session + last-session rows</td></tr>
+        <tr><td>rotation</td><td>0/180/270</td><td class="dim">panel rotation — no 90°, it'd put the keys on the bottom edge</td></tr>
+        <tr><td>reset</td><td>—</td><td class="dim">delete char / factory reset</td></tr>
+      </table>
+      <p class="note">
+        Hold <b>KEY</b> to open <b>menu → settings</b>. <b>PWR</b> moves the
+        cursor up, <b>KEY</b> moves it down, <b>BOOT</b> selects; hold
+        <b>KEY</b> again to back out a level.
       </p>
 
       <h2>The Seven Moods</h2>
@@ -396,16 +483,52 @@
   <footer>
     <div class="reset">
       <b>FACTORY RESET</b><br>
-      hold A › settings › reset › factory reset › tap twice
+      hold KEY › settings › reset › factory reset › tap twice
     </div>
     <div class="hack">
       <b style="color:var(--m5)">MAKE IT YOURS ✎</b>&nbsp;
       The firmware is open source — clone
-      <code>github.com/anthropics/claude-desktop-buddy</code>, point Claude&nbsp;Code at it,
-      and reshape the stick however you like. New pets, new screens, new rules.
+      <code>github.com/sbutwina/claude-desktop-buddy-esp32</code>, point Claude&nbsp;Code at it,
+      and reshape the board however you like. New pets, new screens, new rules.
     </div>
   </footer>
 
 </article>
+<script>
+(function () {
+  var ctx;
+  function ensureCtx() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  // Mirrors hwBeep(freqHz, durMs): sine tone, 4ms fade in/out.
+  function beep(ac, freq, durMs, startAt) {
+    var dur = durMs / 1000, fade = Math.min(0.004, dur / 3);
+    var osc = ac.createOscillator(), gain = ac.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    gain.gain.setValueAtTime(0, startAt);
+    gain.gain.linearRampToValueAtTime(0.25, startAt + fade);
+    gain.gain.setValueAtTime(0.25, startAt + Math.max(fade, dur - fade));
+    gain.gain.linearRampToValueAtTime(0, startAt + dur);
+    osc.start(startAt);
+    osc.stop(startAt + dur + 0.01);
+  }
+  document.querySelectorAll('#audioCues tr[data-tones]').forEach(function (row) {
+    row.addEventListener('click', function () {
+      var ac = ensureCtx();
+      var parts = row.dataset.tones.split(',').map(Number);
+      var t = ac.currentTime;
+      for (var i = 0; i < parts.length; i += 2) {
+        beep(ac, parts[i], parts[i + 1], t);
+        t += parts[i + 1] / 1000;
+      }
+    });
+  });
+})();
+</script>
 </body>
 </html>
