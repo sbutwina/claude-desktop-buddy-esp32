@@ -168,7 +168,7 @@ static inline void wakeForUser() {
 bool     responseSent = false;
 
 static void beep(uint16_t freq, uint16_t dur) {
-  if (settings().sound) hwBeep(freq, dur);
+  if (settings().sound && !napping) hwBeep(freq, dur);
 }
 
 // Press-start snapshot, read on justReleased to classify a stationary tap
