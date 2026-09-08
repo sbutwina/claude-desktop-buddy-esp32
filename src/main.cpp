@@ -354,34 +354,72 @@ static void drawMenuHints(const Palette& p, int mx, int mw, int hy) {
 // rotated. The button strip is fixed to the case; only which edge it lines
 // up with (and, for PWR/KEY, which direction each one drives) changes with
 // settings().rotation. BOOT never changes meaning — always "select".
-enum { HINT_UP, HINT_DOWN, HINT_SELECT };
+enum { HINT_UP, HINT_DOWN, HINT_SELECT, HINT_APPROVE, HINT_DENY };
+
+// Thick stroke: stamp filled circles along the segment so it reads solid
+// after the bilinear canvas-to-panel upscale, instead of a hairline drawLine.
+static void thickSeg(int x0, int y0, int x1, int y1, uint16_t col) {
+  int steps = max(abs(x1 - x0), abs(y1 - y0));
+  for (int i = 0; i <= steps; i++) {
+    int x = x0 + (x1 - x0) * i / steps;
+    int y = y0 + (y1 - y0) * i / steps;
+    spr.fillCircle(x, y, 2, col);
+  }
+}
 
 static void drawHintGlyph(int x, int y, uint8_t glyph, uint16_t col) {
   switch (glyph) {
     case HINT_UP:     spr.fillTriangle(x - 5, y + 4, x + 5, y + 4, x, y - 5, col); break;
     case HINT_DOWN:   spr.fillTriangle(x - 5, y - 4, x + 5, y - 4, x, y + 5, col); break;
     case HINT_SELECT: spr.fillTriangle(x - 4, y - 5, x - 4, y + 5, x + 5, y, col); break;
+    // Stamped filled circles instead of drawLine: a 1px stroke nearly
+    // vanishes once hwDisplayPush bilinear-upscales the 184x224 canvas onto
+    // the 480x480 panel (~2.6x). Matches the solid look of the triangle glyphs.
+    case HINT_APPROVE:
+      thickSeg(x - 5, y,     x - 1, y + 4, col);
+      thickSeg(x - 1, y + 4, x + 5, y - 5, col);
+      break;
+    case HINT_DENY:
+      thickSeg(x - 4, y - 4, x + 4, y + 4, col);
+      thickSeg(x - 4, y + 4, x + 4, y - 4, col);
+      break;
   }
 }
+
+// slot[0..2] = glyph position nearest-edge-corner -> farthest, per the
+// physical layout confirmed against the case (rotation 0 vs 2/3 differ; 2
+// and 3 share the same order since pwrIsCursorUp() agrees for both). Shared
+// by drawButtonHints (menus) and drawApproval (KEY/BOOT slots only) so both
+// track the button strip's actual screen edge as rotation changes.
+static void hintSlotXY(int slotIdx, int& x, int& y) {
+  const int MARGIN = 12;   // eyeball against the physical case; adjust if off
+  if (settings().rotation == 3) {
+    x = W / 4 + slotIdx * (W / 4);
+    y = MARGIN;
+  } else {
+    x = (settings().rotation == 0) ? MARGIN : W - MARGIN;
+    y = H / 4 + slotIdx * (H / 4);
+  }
+}
+
+// KEY and BOOT's slot index for the current rotation (slot 1 is always PWR).
+static inline int keySlotIdx()  { return settings().rotation == 0 ? 0 : 2; }
+static inline int bootSlotIdx() { return settings().rotation == 0 ? 2 : 0; }
 
 static void drawButtonHints() {
   const Palette& p = characterPalette();
   uint8_t pwrGlyph = pwrIsCursorUp() ? HINT_UP : HINT_DOWN;
   uint8_t keyGlyph = pwrIsCursorUp() ? HINT_DOWN : HINT_UP;
 
-  // slot[0..2] = glyph nearest-edge-corner -> farthest, per the physical
-  // layout confirmed against the case (rotation 0 vs 2/3 differ; 2 and 3
-  // share the same order since pwrIsCursorUp() agrees for both).
   uint8_t slot[3];
-  if (settings().rotation == 0) { slot[0] = keyGlyph; slot[1] = pwrGlyph; slot[2] = HINT_SELECT; }
-  else                          { slot[0] = HINT_SELECT; slot[1] = pwrGlyph; slot[2] = keyGlyph; }
+  slot[keySlotIdx()]  = keyGlyph;
+  slot[1]             = pwrGlyph;
+  slot[bootSlotIdx()] = HINT_SELECT;
 
-  const int MARGIN = 12;   // eyeball against the physical case; adjust if off
-  if (settings().rotation == 3) {
-    for (int i = 0; i < 3; i++) drawHintGlyph(W / 4 + i * (W / 4), MARGIN, slot[i], p.textDim);
-  } else {
-    int x = (settings().rotation == 0) ? MARGIN : W - MARGIN;
-    for (int i = 0; i < 3; i++) drawHintGlyph(x, H / 4 + i * (H / 4), slot[i], p.textDim);
+  for (int i = 0; i < 3; i++) {
+    int x, y;
+    hintSlotXY(i, x, y);
+    drawHintGlyph(x, y, slot[i], p.textDim);
   }
 }
 
@@ -834,12 +872,19 @@ static void drawApproval() {
     spr.setCursor(SAFE_L, SAFE_B - 12);
     spr.print("sent...");
   } else {
-    spr.setTextColor(GREEN, p.bg);
-    spr.setCursor(SAFE_L, SAFE_B - 12);
-    spr.print("A: approve");
-    spr.setTextColor(HOT, p.bg);
-    spr.setCursor(SAFE_R - 48, SAFE_B - 12);
-    spr.print("B: deny");
+    // Glyphs float to KEY's / BOOT's actual screen edge for the current
+    // rotation (see hintSlotXY) — same mechanism drawButtonHints uses, so
+    // approve/deny always line up with the physical button, not a fixed side.
+    int kx, ky, bx, by;
+    hintSlotXY(keySlotIdx(),  kx, ky);
+    hintSlotXY(bootSlotIdx(), bx, by);
+    // Portrait rotations put one slot's y inside the footer's text block —
+    // pull it up to just above the divider line instead of overlapping.
+    const int FOOTER_CLEAR = H - AREA - 8;
+    if (ky > FOOTER_CLEAR) ky = FOOTER_CLEAR;
+    if (by > FOOTER_CLEAR) by = FOOTER_CLEAR;
+    drawHintGlyph(kx, ky, HINT_APPROVE, GREEN);
+    drawHintGlyph(bx, by, HINT_DENY, HOT);
   }
 }
 
@@ -1444,7 +1489,7 @@ void loop() {
       else if (clocking) drawClock();
       else if (displayMode == DISP_INFO) drawInfo();
       else if (displayMode == DISP_PET) drawPet();
-      else if (settings().hud) drawHUD();
+      else if (settings().hud || tama.promptId[0]) drawHUD();
       if (resetOpen) drawReset();
       else if (settingsOpen) drawSettings();
       else if (menuOpen) drawMenu();
