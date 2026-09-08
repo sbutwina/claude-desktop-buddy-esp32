@@ -988,6 +988,10 @@ void drawHUD() {
   // centered and don't cover the bottom 34 px on their own.
   if (menuOpen || settingsOpen || resetOpen) return;
 
+  // Transcript text itself is opt-in, but the strip above must still be
+  // cleared every frame (already done) so nothing lingers underneath.
+  if (!settings().hud) return;
+
   if (tama.lineGen != lastLineGen) { msgScroll = 0; lastLineGen = tama.lineGen; wake(); }
 
   // buddy/character ticks leave textsize at 2 (home scale); without
@@ -1450,6 +1454,24 @@ void loop() {
   // regardless of what's pushed to the framebuffer.
   bool dotsOnly = napping || busyDimmed || activeState == P_SLEEP;
 
+  // Menu/settings/reset panels and the approval screen all paint well above
+  // the footer's own clear zone but below where the buddy/character tick's
+  // clear reaches — closing one leaves ink in that middle band that nothing
+  // else ever wipes. One full clear on the close transition, same fix as
+  // the clocking-mode entry above. Approval is data-driven (promptId going
+  // empty on the next heartbeat) rather than a UI flag, but it closes the
+  // same way.
+  {
+    static bool wasOverlayOpen = false;
+    bool overlayOpen = menuOpen || settingsOpen || resetOpen || tama.promptId[0];
+    if (wasOverlayOpen && !overlayOpen && !screenOff) {
+      spr.fillScreen(characterPalette().bg);
+      characterInvalidate();
+      if (buddyMode) buddyInvalidate();
+    }
+    wasOverlayOpen = overlayOpen;
+  }
+
   if (screenOff) {
     // skip canvas render — panel truly powered off
   } else if (dotsOnly) {
@@ -1489,7 +1511,7 @@ void loop() {
       else if (clocking) drawClock();
       else if (displayMode == DISP_INFO) drawInfo();
       else if (displayMode == DISP_PET) drawPet();
-      else if (settings().hud || tama.promptId[0]) drawHUD();
+      else drawHUD();
       if (resetOpen) drawReset();
       else if (settingsOpen) drawSettings();
       else if (menuOpen) drawMenu();
